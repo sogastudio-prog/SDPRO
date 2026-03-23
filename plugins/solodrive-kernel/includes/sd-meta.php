@@ -468,4 +468,13 @@ final class SD_Meta {
   // ---------------------------------------------------------------------------
   public const P_BLOCK_CONFLICT    = '_sd_block_conflict';
   public const P_BLOCK_CONFLICT_AT = '_sd_block_conflict_at';
+
+  // ---------------------------------------------------------------------------
+// Locked / Accrued Revenue (ride-level, progressive accrual)
+// ---------------------------------------------------------------------------
+public const LOCKED_MILES         = 'sd_locked_miles';
+public const LOCKED_MINUTES       = 'sd_locked_minutes';
+public const LOCKED_FARE_CENTS    = 'sd_locked_fare_cents';
+public const LOCKED_UPDATED_AT    = 'sd_locked_updated_at';// ---------------------------------------------------------------------------
+
 }
