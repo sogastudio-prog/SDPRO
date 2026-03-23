@@ -230,6 +230,22 @@ final class SD_Module_RideRequestIntakeCF7 {
       $result->invalidate('customer_phone', 'Please enter a valid mobile phone number.');
     }
 
+    $request_mode = strtoupper((string) self::cf7_get('sd_request_mode', self::cf7_get('request_mode', 'ASAP')));
+    if (!in_array($request_mode, ['ASAP', 'RESERVE', 'RESERVATION'], true)) {
+      $result->invalidate('_wpcf7', 'Invalid request mode.');
+    }
+
+    if (in_array($request_mode, ['RESERVE', 'RESERVATION'], true)) {
+      $reserve_date = (string) self::cf7_get('reserve_date', '');
+      $reserve_time = (string) self::cf7_get('reserve_time', '');
+      if ($reserve_date === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $reserve_date)) {
+        $result->invalidate('reserve_date', 'Please choose a valid reservation date.');
+      }
+      if ($reserve_time === '' || !preg_match('/^\d{2}:\d{2}$/', $reserve_time)) {
+        $result->invalidate('reserve_time', 'Please choose a valid reservation time.');
+      }
+    }
+
     if ($pickup_place_id !== '' && $dropoff_place_id !== '' && $pickup_place_id === $dropoff_place_id) {
       $result->invalidate('dropoff_address', 'Destination must be different than pickup.');
     }
@@ -298,105 +314,15 @@ final class SD_Module_RideRequestIntakeCF7 {
 
   private static function cf7_create_lead_record($submission, int $tenant_id) : array {
     $posted = $submission->get_posted_data();
-
-    $pickup_text  = trim((string) ($posted['pickup_address'] ?? ''));
-    $dropoff_text = trim((string) ($posted['dropoff_address'] ?? ''));
-    $pickup_pid   = trim((string) ($posted['pickup_place_id'] ?? ''));
-    $dropoff_pid  = trim((string) ($posted['dropoff_place_id'] ?? ''));
-    $pickup_lat   = self::posted_float($posted, 'pickup_lat');
-    $pickup_lng   = self::posted_float($posted, 'pickup_lng');
-    $dropoff_lat  = self::posted_float($posted, 'dropoff_lat');
-    $dropoff_lng  = self::posted_float($posted, 'dropoff_lng');
-    $phone        = trim((string) ($posted['customer_phone'] ?? ''));
-    $name         = trim((string) ($posted['customer_name'] ?? ''));
-
-    if ($tenant_id <= 0) {
-      return ['ok'=>false,'lead_id'=>0,'token'=>'','trip_url'=>'','error'=>'Missing tenant.'];
+    if (!is_array($posted)) {
+      return ['ok'=>false,'lead_id'=>0,'token'=>'','trip_url'=>'','error'=>'No submission payload.'];
     }
 
-    if (get_post_type($tenant_id) !== 'sd_tenant') {
-      return ['ok'=>false,'lead_id'=>0,'token'=>'','trip_url'=>'','error'=>'Invalid tenant.'];
+    if (!class_exists('SD_Module_LeadService')) {
+      return ['ok'=>false,'lead_id'=>0,'token'=>'','trip_url'=>'','error'=>'Lead service unavailable.'];
     }
 
-    if ($pickup_text === '' || $dropoff_text === '') {
-      return ['ok'=>false,'lead_id'=>0,'token'=>'','trip_url'=>'','error'=>'Pickup and dropoff are required.'];
-    }
-
-    if ($pickup_pid === '' || $dropoff_pid === '') {
-      return ['ok'=>false,'lead_id'=>0,'token'=>'','trip_url'=>'','error'=>'Place IDs are required.'];
-    }
-
-    $lead_id = wp_insert_post([
-      'post_type'   => 'sd_lead',
-      'post_status' => 'publish',
-      'post_title'  => 'Lead Request — ' . gmdate('Y-m-d H:i:s'),
-    ], true);
-
-    if (is_wp_error($lead_id) || (int) $lead_id <= 0) {
-      return ['ok'=>false,'lead_id'=>0,'token'=>'','trip_url'=>'','error'=>'Could not create lead record.'];
-    }
-    $lead_id = (int) $lead_id;
-
-    update_post_meta($lead_id, SD_Meta::TENANT_ID, $tenant_id);
-    update_post_meta($lead_id, SD_Meta::PICKUP_TEXT, $pickup_text);
-    update_post_meta($lead_id, SD_Meta::DROPOFF_TEXT, $dropoff_text);
-    update_post_meta($lead_id, SD_Meta::PICKUP_PLACE_ID, $pickup_pid);
-    update_post_meta($lead_id, SD_Meta::DROPOFF_PLACE_ID, $dropoff_pid);
-
-    if (self::valid_coord_pair($pickup_lat, $pickup_lng)) {
-      update_post_meta($lead_id, SD_Meta::PICKUP_LAT, $pickup_lat);
-      update_post_meta($lead_id, SD_Meta::PICKUP_LNG, $pickup_lng);
-    }
-
-    if (self::valid_coord_pair($dropoff_lat, $dropoff_lng)) {
-      update_post_meta($lead_id, SD_Meta::DROPOFF_LAT, $dropoff_lat);
-      update_post_meta($lead_id, SD_Meta::DROPOFF_LNG, $dropoff_lng);
-    }
-
-    if ($phone !== '') update_post_meta($lead_id, SD_Meta::CUSTOMER_PHONE, $phone);
-    if ($name !== '')  update_post_meta($lead_id, SD_Meta::CUSTOMER_NAME, $name);
-
-    update_post_meta($lead_id, SD_Meta::LEAD_STATUS, 'LEAD_CAPTURED');
-    update_post_meta($lead_id, SD_Meta::P_STATE_UPDATED_AT, time());
-    update_post_meta($lead_id, SD_Meta::REQUEST_MODE, 'ASAP');
-    update_post_meta($lead_id, SD_Meta::REQUESTED_TS, time());
-
-    $token = class_exists('SD_Module_LeadTokenService')
-      ? SD_Module_LeadTokenService::assign_token($lead_id)
-      : self::generate_trip_token();
-
-    if ($token === '') {
-      return ['ok'=>false,'lead_id'=>$lead_id,'token'=>'','trip_url'=>'','error'=>'Could not mint lead token.'];
-    }
-
-    $trip_url = home_url('/trip/' . rawurlencode($token) . '/');
-
-    do_action('sd_lead_created', $lead_id, $tenant_id);
-
-    return [
-      'ok'       => true,
-      'lead_id'  => $lead_id,
-      'token'    => $token,
-      'trip_url' => $trip_url,
-      'error'    => '',
-    ];
-  }
-
-  private static function posted_float(array $posted, string $key) : float {
-    if (!array_key_exists($key, $posted)) return 0.0;
-    $val = $posted[$key];
-    if (is_array($val)) $val = reset($val);
-    $val = is_string($val) ? trim(wp_unslash($val)) : $val;
-    return is_numeric($val) ? (float) $val : 0.0;
-  }
-
-  private static function valid_coord_pair(float $lat, float $lng) : bool {
-    return abs($lat) > 0.0001 && abs($lng) > 0.0001;
-  }
-
-  private static function generate_trip_token() : string {
-    $raw = random_bytes(16);
-    return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
+    return SD_Module_LeadService::create_from_intake($posted, $tenant_id);
   }
 
   // ---------------------------------------------------------------------------

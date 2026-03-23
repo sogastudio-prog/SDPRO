@@ -546,11 +546,13 @@ if ($quote_status !== 'PRESENTED') {
   }
 
   private static function render_lead_surface(array $lead) : void {
-    $pickup  = self::short_city_address((string) ($lead['pickup_text'] ?? ''));
-    $dropoff = self::short_city_address((string) ($lead['dropoff_text'] ?? ''));
+    $pickup   = self::short_city_address((string) ($lead['pickup_text'] ?? ''));
+    $dropoff  = self::short_city_address((string) ($lead['dropoff_text'] ?? ''));
     $headline = 'Request received';
-    $sub = 'Your request is in progress. Keep this page open for updates.';
-    $status = (string) ($lead['lead_status'] ?? '');
+    $sub      = 'Your request is in progress. Keep this page open for updates.';
+    $status   = (string) ($lead['lead_status'] ?? '');
+    $mode     = strtoupper((string) ($lead['request_mode'] ?? 'ASAP'));
+    $req_ts   = (int) ($lead['requested_ts'] ?? 0);
 
     if ($status === 'LEAD_UNAVAILABLE') {
       $headline = 'Currently unavailable';
@@ -566,6 +568,10 @@ if ($quote_status !== 'PRESENTED') {
       $sub = 'Your request is ready for the next step.';
     }
 
+    $timing_line = ($mode === 'RESERVE' && $req_ts > 0)
+      ? 'Requested for ' . wp_date('M j, g:i a', $req_ts)
+      : 'Requested now';
+
     $html  = self::styles();
     $html .= '<div class="sd-trip-wrap">';
     $html .= '<div class="sd-trip-card sd-trip-hero">';
@@ -576,6 +582,7 @@ if ($quote_status !== 'PRESENTED') {
     $html .= '<div class="sd-trip-hero-ride">Lead #' . (int) ($lead['lead_id'] ?? 0) . '</div>';
     $html .= '</div>';
     $html .= '<div class="sd-trip-hero-destination">' . esc_html($dropoff !== '' ? $dropoff : 'Your Request') . '</div>';
+    $html .= '<div class="sd-trip-hero-eta">' . esc_html($timing_line) . '</div>';
     $html .= '<div class="sd-trip-status-headline">' . esc_html($headline) . '</div>';
     $html .= '<div class="sd-trip-sub sd-trip-sub-strong">' . esc_html($sub) . '</div>';
     $html .= '</div>';
@@ -583,6 +590,8 @@ if ($quote_status !== 'PRESENTED') {
     $html .= '<div class="sd-trip-section-title">Request details</div>';
     $html .= '<div class="sd-trip-route-line"><strong>Pickup:</strong> ' . esc_html((string) ($lead['pickup_text'] ?? '—')) . '</div>';
     $html .= '<div class="sd-trip-route-line"><strong>Dropoff:</strong> ' . esc_html((string) ($lead['dropoff_text'] ?? '—')) . '</div>';
+    $html .= '<div class="sd-trip-route-line"><strong>Mode:</strong> ' . esc_html($mode === 'RESERVE' ? 'Reservation' : 'ASAP') . '</div>';
+    $html .= '<div class="sd-trip-route-line"><strong>Timing:</strong> ' . esc_html($timing_line) . '</div>';
     $html .= '<div class="sd-trip-route-line"><strong>Status:</strong> ' . esc_html($status !== '' ? $status : 'LEAD_CAPTURED') . '</div>';
     $html .= '</div>';
     $html .= '</div>';

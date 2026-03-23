@@ -208,12 +208,21 @@ final class SD_Meta {
   public const P_FORM_SNAPSHOT_JSON = '_sd_intake_payload_json';
 
   // ---------------------------------------------------------------------------
-  // Ride (sd_ride)
+  // Lead / token lifecycle (sd_lead root; token resolves here first)
   // ---------------------------------------------------------------------------
-  public const TRIP_TOKEN      = 'sd_trip_token';
-  public const TRIP_TOKEN_HASH = 'sd_trip_token_hash'; // sha256 hex (64 chars)
+  public const TRIP_TOKEN          = 'sd_trip_token';
+  public const TRIP_TOKEN_HASH     = 'sd_trip_token_hash'; // sha256 hex (64 chars)
+  public const LEAD_STATUS         = 'sd_lead_status';
+  public const REQUEST_MODE        = 'sd_request_mode'; // ASAP|RESERVE
+  public const REQUESTED_TS        = 'sd_requested_ts'; // canonical requested/anchored start ts
+  public const REQUESTED_DATE      = 'sd_requested_date'; // YYYY-MM-DD when rider chose reserve date
+  public const REQUESTED_TIME      = 'sd_requested_time'; // HH:MM when rider chose reserve time
+  public const AVAILABILITY_STATUS = 'sd_availability_status'; // pending|available|unavailable
+  public const CURRENT_QUOTE_ID    = 'sd_current_quote_id';
+  public const CURRENT_ATTEMPT_ID  = 'sd_current_attempt_id';
+  public const PROMOTED_RIDE_ID    = 'sd_promoted_ride_id';
 
-  public const LEAD_STATUS = 'sd_lead_status';
+  // Ride execution state lives on sd_ride only
   public const RIDE_STATE  = 'sd_ride_state';
 
   // Private: token expiry + state audit
@@ -240,8 +249,7 @@ final class SD_Meta {
 
   // Unified ride planning/origin context
   public const RIDE_MODE        = 'sd_ride_mode';        // ON_DEMAND|STACKED|WAITLIST|RESERVED
-  public const REQUESTED_TS     = 'sd_requested_ts';     // canonical requested/anchored start ts
-  public const SERVICE_START_TS = 'sd_service_start_ts'; // computed service block start
+    public const SERVICE_START_TS = 'sd_service_start_ts'; // computed service block start
   public const SERVICE_END_TS   = 'sd_service_end_ts';   // computed service block end
   public const TIME_BLOCK_ID    = 'sd_time_block_id';    // linked sd_time_block post id
 
@@ -288,7 +296,8 @@ final class SD_Meta {
   // ---------------------------------------------------------------------------
   // Quote (sd_quote)
   // ---------------------------------------------------------------------------
-  public const RIDE_ID      = 'sd_ride_id'; // quote -> ride link
+  public const LEAD_ID      = 'sd_lead_id'; // canonical child -> lead link
+  public const RIDE_ID      = 'sd_ride_id'; // quote -> ride link (post-promotion use only)
   public const QUOTE_STATUS = 'sd_quote_status';
   public const QUOTE_ID     = 'sd_quote_id';
 
@@ -330,6 +339,7 @@ final class SD_Meta {
   // Stripe correlation MUST be attempt-first.
   // ---------------------------------------------------------------------------
   public const P_ATTEMPT_STATUS        = '_sd_attempt_status';
+  public const P_ATTEMPT_LEAD_ID       = '_sd_attempt_lead_id';
   public const P_ATTEMPT_RIDE_ID       = '_sd_attempt_ride_id';
   public const P_ATTEMPT_QUOTE_ID      = '_sd_attempt_quote_id';
   public const P_ATTEMPT_CREATED_AT    = '_sd_attempt_created_at';
