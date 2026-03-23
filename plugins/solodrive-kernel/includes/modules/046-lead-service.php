@@ -27,30 +27,40 @@ final class SD_Module_LeadService {
       return self::fail('Invalid tenant.');
     }
 
-    $pickup_text  = self::clean_text($payload['pickup_address'] ?? '');
-    $dropoff_text = self::clean_text($payload['dropoff_address'] ?? '');
-    $pickup_pid   = self::clean_token($payload['pickup_place_id'] ?? '');
-    $dropoff_pid  = self::clean_token($payload['dropoff_place_id'] ?? '');
-    $phone        = self::clean_text($payload['customer_phone'] ?? '');
-    $name         = self::clean_text($payload['customer_name'] ?? '');
-    $mode         = self::normalize_request_mode($payload['sd_request_mode'] ?? ($payload['request_mode'] ?? 'ASAP'));
-    $reserve_date = self::clean_date($payload['reserve_date'] ?? '');
-    $reserve_time = self::clean_time($payload['reserve_time'] ?? '');
+    $pickup_text   = self::clean_text($payload['pickup_address'] ?? '');
+    $dropoff_text  = self::clean_text($payload['dropoff_address'] ?? '');
+    $pickup_pid    = self::clean_token($payload['pickup_place_id'] ?? '');
+    $dropoff_pid   = self::clean_token($payload['dropoff_place_id'] ?? '');
+    $phone         = self::normalize_phone($payload['customer_phone'] ?? '');
+    $name          = self::clean_text($payload['customer_name'] ?? '');
+    $mode          = self::normalize_request_mode($payload['sd_request_mode'] ?? ($payload['request_mode'] ?? SD_Meta::LEAD_MODE_ASAP));
+    $reserve_date  = self::clean_date($payload['reserve_date'] ?? '');
+    $reserve_time  = self::clean_time($payload['reserve_time'] ?? '');
     $reserve_notes = self::clean_text($payload['reserve_notes'] ?? ($payload['customer_notes'] ?? ''));
 
-    if ($pickup_text === '' || $dropoff_text === '') {
-      return self::fail('Pickup and dropoff are required.');
-    }
     if ($pickup_pid === '' || $dropoff_pid === '') {
-      return self::fail('Place IDs are required.');
+      return self::fail('Pickup and dropoff place IDs are required.');
     }
-    if ($mode === 'RESERVE' && ($reserve_date === '' || $reserve_time === '')) {
+
+    if ($name === '') {
+      return self::fail('Name is required.');
+    }
+
+    if (!self::is_valid_phone($phone)) {
+      return self::fail('Valid phone is required.');
+    }
+
+    if ($mode === SD_Meta::LEAD_MODE_RESERVE && ($reserve_date === '' || $reserve_time === '')) {
       return self::fail('Reservation date and time are required.');
     }
 
+    // Canonical lead request time:
+    // - ASAP: anchored to intake time
+    // - RESERVE: anchored to visitor-selected future time
     $requested_ts = current_time('timestamp');
     $scheduled_ts = 0;
-    if ($mode === 'RESERVE') {
+
+    if ($mode === SD_Meta::LEAD_MODE_RESERVE) {
       $scheduled_ts = self::build_requested_ts($reserve_date, $reserve_time);
       if ($scheduled_ts <= 0) {
         return self::fail('Invalid reservation date or time.');
@@ -58,11 +68,13 @@ final class SD_Module_LeadService {
       $requested_ts = $scheduled_ts;
     }
 
-    $title_suffix = ($dropoff_text !== '') ? $dropoff_text : gmdate('Y-m-d H:i:s');
+    $title_when = gmdate('Y-m-d H:i', (int) $requested_ts) . ' UTC';
+    $title_name = ($name !== '') ? $name : 'Lead';
+
     $lead_id = wp_insert_post([
       'post_type'   => SD_Module_LeadCPT::CPT,
       'post_status' => 'publish',
-      'post_title'  => 'Lead — ' . wp_trim_words($title_suffix, 8, ''),
+      'post_title'  => sprintf('Lead — %s — %s', $title_name, $title_when),
     ], true);
 
     if (is_wp_error($lead_id) || (int) $lead_id <= 0) {
@@ -79,17 +91,19 @@ final class SD_Module_LeadService {
     self::maybe_store_coords($lead_id, $payload, 'pickup_lat', 'pickup_lng', SD_Meta::PICKUP_LAT, SD_Meta::PICKUP_LNG);
     self::maybe_store_coords($lead_id, $payload, 'dropoff_lat', 'dropoff_lng', SD_Meta::DROPOFF_LAT, SD_Meta::DROPOFF_LNG);
 
-    if ($phone !== '') update_post_meta($lead_id, SD_Meta::CUSTOMER_PHONE, $phone);
-    if ($name !== '')  update_post_meta($lead_id, SD_Meta::CUSTOMER_NAME, $name);
-    if ($reserve_notes !== '') update_post_meta($lead_id, SD_Meta::RESERVE_NOTES, $reserve_notes);
+    update_post_meta($lead_id, SD_Meta::CUSTOMER_PHONE, $phone);
+    update_post_meta($lead_id, SD_Meta::CUSTOMER_NAME, $name);
 
-    update_post_meta($lead_id, SD_Meta::LEAD_STATUS, 'LEAD_CAPTURED');
+    if ($reserve_notes !== '') {
+      update_post_meta($lead_id, SD_Meta::RESERVE_NOTES, $reserve_notes);
+    }
+
+    update_post_meta($lead_id, SD_Meta::LEAD_STATUS, SD_Meta::LEAD_CAPTURED);
     update_post_meta($lead_id, SD_Meta::AVAILABILITY_STATUS, 'pending');
     update_post_meta($lead_id, SD_Meta::REQUEST_MODE, $mode);
     update_post_meta($lead_id, SD_Meta::REQUESTED_TS, $requested_ts);
-    update_post_meta($lead_id, SD_Meta::P_STATE_UPDATED_AT, time());
 
-    if ($mode === 'RESERVE') {
+    if ($mode === SD_Meta::LEAD_MODE_RESERVE) {
       update_post_meta($lead_id, SD_Meta::REQUESTED_DATE, $reserve_date);
       update_post_meta($lead_id, SD_Meta::REQUESTED_TIME, $reserve_time);
       update_post_meta($lead_id, SD_Meta::PICKUP_SCHEDULED_TS, $scheduled_ts);
@@ -108,6 +122,7 @@ final class SD_Module_LeadService {
     }
 
     $trip_url = home_url('/trip/' . rawurlencode($token) . '/');
+
     do_action('sd_lead_created', $lead_id, $tenant_id, [
       'request_mode' => $mode,
       'requested_ts' => $requested_ts,
@@ -121,6 +136,15 @@ final class SD_Module_LeadService {
       'trip_url' => $trip_url,
       'error'    => '',
     ];
+  }
+
+  private static function is_valid_phone(string $value) : bool {
+    return (bool) preg_match('/^\+?[0-9]{10,15}$/', $value);
+  }
+
+  private static function normalize_phone($value) : string {
+    $normalized = preg_replace('/[^0-9+]/', '', (string) $value);
+    return is_string($normalized) ? trim($normalized) : '';
   }
 
   private static function snapshot_payload(array $payload) : array {
@@ -156,7 +180,9 @@ final class SD_Module_LeadService {
 
   private static function normalize_request_mode($value) : string {
     $v = strtoupper(trim((string) $value));
-    return ($v === 'RESERVE' || $v === 'RESERVATION') ? 'RESERVE' : 'ASAP';
+    return ($v === SD_Meta::LEAD_MODE_RESERVE || $v === 'RESERVATION')
+      ? SD_Meta::LEAD_MODE_RESERVE
+      : SD_Meta::LEAD_MODE_ASAP;
   }
 
   private static function clean_text($value) : string {

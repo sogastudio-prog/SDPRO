@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) { exit; }
  */
 final class SD_Module_LeadCPT {
 
-  public const CPT = 'sd_lead';
+  public const CPT = SD_Meta::LEAD_CPT;
 
   public static function register() : void {
     add_action('init', [__CLASS__, 'register_post_type']);

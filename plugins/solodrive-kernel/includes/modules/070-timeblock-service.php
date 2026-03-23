@@ -153,7 +153,7 @@ final class SD_Module_TimeblockService {
     $pickup_ts    = (int) get_post_meta($lead_id, SD_Meta::PICKUP_SCHEDULED_TS, true);
 
     $start_ts = 0;
-    if ($mode === 'RESERVE') {
+    if ($mode === SD_Meta::LEAD_MODE_RESERVE) {
       $start_ts = $pickup_ts > 0 ? $pickup_ts : $requested_ts;
     } else {
       $start_ts = current_time('timestamp') + (self::ASAP_BUFFER_MINUTES * MINUTE_IN_SECONDS);
