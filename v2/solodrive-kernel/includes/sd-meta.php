@@ -240,6 +240,40 @@ final class SD_Meta {
   public const CURRENT_ATTEMPT_ID  = 'sd_current_attempt_id';
   public const PROMOTED_RIDE_ID    = 'sd_promoted_ride_id';
 
+    // ---------------------------------------------------------------------------
+  // Lead-root quote model
+  // ---------------------------------------------------------------------------
+  public const LEAD_ID             = 'sd_lead_id';
+  public const CURRENT_QUOTE_ID    = 'sd_current_quote_id';
+  public const CURRENT_ATTEMPT_ID  = 'sd_current_attempt_id';
+  public const PROMOTED_RIDE_ID    = 'sd_promoted_ride_id';
+
+  // Lead request context
+  public const REQUEST_MODE        = 'sd_request_mode';        // ASAP|RESERVE
+  public const REQUESTED_DATE      = 'sd_requested_date';
+  public const REQUESTED_TIME      = 'sd_requested_time';
+  public const AVAILABILITY_STATUS = 'sd_availability_status'; // pending|available|unavailable
+
+  // Quote draft/private payload
+  public const P_QUOTE_DRAFT_JSON      = '_sd_quote_draft_json';
+  public const P_QUOTE_BUILT_AT        = '_sd_quote_built_at';
+  public const P_QUOTE_BUILD_ERROR     = '_sd_quote_build_error';
+  public const P_QUOTE_STATUS_UPDATED_AT = '_sd_quote_status_updated_at';
+  public const P_QUOTE_PRESENTED_AT    = '_sd_quote_presented_at';
+  public const P_QUOTE_APPROVED_AT     = '_sd_quote_approved_at';
+  public const P_QUOTE_ACCEPTED_AT     = '_sd_quote_accepted_at';
+  public const P_QUOTE_REJECTED_AT     = '_sd_quote_rejected_at';
+  public const P_QUOTE_EXPIRES_AT      = '_sd_quote_expires_at';
+
+  // Quote commercial snapshot
+  public const QUOTE_TOTAL_CENTS       = 'sd_quote_total_cents';
+  public const QUOTE_CURRENCY          = 'sd_quote_currency';
+  public const QUOTE_CONFIDENCE        = 'sd_quote_confidence';
+  public const QUOTE_PRESENTABLE_TOTAL = 'sd_quote_presentable_total';
+
+  // Private lead lifecycle reason helpers
+  public const P_AVAILABILITY_REASON   = '_sd_availability_reason';
+
   // Ride execution state lives on sd_ride only
   public const RIDE_STATE  = 'sd_ride_state';
 

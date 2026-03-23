@@ -1,116 +1,81 @@
 <?php
 if (!defined('ABSPATH')) { exit; }
 
-/**
- * SD_Quote_State — Canonical quote lifecycle (minimal foundation)
- *
- * This is the only place canonical quote states are defined.
- *
- * Locked intent:
- * - QUOTE_PRESENTED is the only human decision state
- * - PAYMENT_PENDING is the goal state post-authorization
- */
 final class SD_Quote_State {
 
-  public const PROPOSED        = 'PROPOSED';
-  public const PRESENTED       = 'PRESENTED';
-  public const PAYMENT_PENDING = 'PAYMENT_PENDING';
-
-  // Reserved for later expansion (safe to add; do not remove once shipped)
-  public const APPROVED        = 'APPROVED';
-  public const LEAD_ACCEPTED   = 'LEAD_ACCEPTED';
-  public const USER_REJECTED   = 'USER_REJECTED';
-  public const USER_TIMEOUT    = 'USER_TIMEOUT';
-  public const EXPIRED         = 'EXPIRED';
-  public const CANCELLED       = 'CANCELLED';
+  public const DRAFT            = 'DRAFT';
+  public const PENDING_OPERATOR = 'PENDING_OPERATOR';
+  public const APPROVED         = 'APPROVED';
+  public const PRESENTED        = 'PRESENTED';
+  public const ACCEPTED         = 'ACCEPTED';
+  public const REJECTED         = 'REJECTED';
+  public const EXPIRED          = 'EXPIRED';
+  public const SUPERSEDED       = 'SUPERSEDED';
+  public const CANCELLED        = 'CANCELLED';
 
   public static function all() : array {
     return [
-      self::PROPOSED,
-      self::PRESENTED,
-      self::PAYMENT_PENDING,
-
+      self::DRAFT,
+      self::PENDING_OPERATOR,
       self::APPROVED,
-      self::LEAD_ACCEPTED,
-      self::USER_REJECTED,
-      self::USER_TIMEOUT,
+      self::PRESENTED,
+      self::ACCEPTED,
+      self::REJECTED,
       self::EXPIRED,
+      self::SUPERSEDED,
       self::CANCELLED,
     ];
   }
 
-  public static function is_terminal(string $state) : bool {
-    return in_array($state, [self::EXPIRED, self::CANCELLED], true);
-  }
-
-  /**
-   * Minimal allowed transitions (tighten later).
-   */
   public static function can_transition(string $from, string $to) : bool {
-
     if ($from === $to) return true;
 
     $allowed = [
-      self::PROPOSED        => [self::PRESENTED, self::CANCELLED, self::EXPIRED],
-      self::PRESENTED       => [self::PAYMENT_PENDING, self::USER_REJECTED, self::USER_TIMEOUT, self::CANCELLED, self::EXPIRED],
-      self::PAYMENT_PENDING => [self::LEAD_ACCEPTED, self::CANCELLED, self::EXPIRED],
-
-      // Optional expansion paths (kept permissive)
-      self::APPROVED        => [self::PRESENTED, self::CANCELLED, self::EXPIRED],
-      self::LEAD_ACCEPTED   => [self::CANCELLED],
-      self::USER_REJECTED   => [],
-      self::USER_TIMEOUT    => [],
-      self::EXPIRED         => [],
-      self::CANCELLED       => [],
+      self::DRAFT            => [self::PENDING_OPERATOR, self::CANCELLED, self::EXPIRED],
+      self::PENDING_OPERATOR => [self::APPROVED, self::CANCELLED, self::EXPIRED],
+      self::APPROVED         => [self::PRESENTED, self::CANCELLED, self::EXPIRED],
+      self::PRESENTED        => [self::ACCEPTED, self::REJECTED, self::EXPIRED, self::CANCELLED],
+      self::ACCEPTED         => [self::CANCELLED],
+      self::REJECTED         => [],
+      self::EXPIRED          => [],
+      self::SUPERSEDED       => [],
+      self::CANCELLED        => [],
     ];
 
     return in_array($to, $allowed[$from] ?? [], true);
   }
 }
 
-/**
- * SD_Module_QuoteStateService (v1)
- *
- * - Only reader/writer for quote state
- * - Stores state in SD_Meta::QUOTE_STATUS (sd_quote_status)
- * - Writes audit timestamps
- */
 final class SD_Module_QuoteStateService {
 
   public static function register() : void {
-    // No hooks required yet; used by admin modules + Stripe lifecycle listener.
+    // Library-style service.
   }
 
   public static function get(int $quote_id) : string {
     $state = (string) get_post_meta($quote_id, SD_Meta::QUOTE_STATUS, true);
-    if ($state === '') return SD_Quote_State::PROPOSED;
+    if ($state === '') {
+      return SD_Quote_State::DRAFT;
+    }
 
     if (!in_array($state, SD_Quote_State::all(), true)) {
-      SD_Util::log('quote_state_invalid', ['quote_id' => $quote_id, 'state' => $state]);
-      return SD_Quote_State::PROPOSED;
+      return SD_Quote_State::DRAFT;
     }
 
     return $state;
   }
 
   public static function set(int $quote_id, string $to_state, array $ctx = []) : bool {
-    $to_state = (string) $to_state;
+    $quote_id  = absint($quote_id);
+    $to_state  = strtoupper(trim((string) $to_state));
 
-    if (!in_array($to_state, SD_Quote_State::all(), true)) {
-      SD_Util::log('quote_state_set_rejected_invalid', ['quote_id' => $quote_id, 'to' => $to_state]);
-      return false;
-    }
-
-    // Optional guard: ensure this is really a quote
-    if (class_exists('SD_Module_QuoteCPT') && get_post_type($quote_id) !== SD_Module_QuoteCPT::CPT) {
-      SD_Util::log('quote_state_set_rejected_wrong_type', ['quote_id' => $quote_id]);
-      return false;
-    }
+    if ($quote_id <= 0) return false;
+    if (get_post_type($quote_id) !== SD_Module_QuoteCPT::CPT) return false;
+    if (!in_array($to_state, SD_Quote_State::all(), true)) return false;
 
     $from = self::get($quote_id);
-
     if ($from !== $to_state && !SD_Quote_State::can_transition($from, $to_state)) {
-      SD_Util::log('quote_state_set_rejected_transition', [
+      self::log('quote_state_transition_rejected', [
         'quote_id' => $quote_id,
         'from'     => $from,
         'to'       => $to_state,
@@ -119,9 +84,34 @@ final class SD_Module_QuoteStateService {
     }
 
     update_post_meta($quote_id, SD_Meta::QUOTE_STATUS, $to_state);
-    update_post_meta($quote_id, SD_Meta::P_QUOTE_STATUS_UPDATED_AT, (string) time());
+    update_post_meta($quote_id, SD_Meta::P_QUOTE_STATUS_UPDATED_AT, time());
 
-    SD_Util::log('quote_state_set', [
+    if ($to_state === SD_Quote_State::APPROVED) {
+      update_post_meta($quote_id, SD_Meta::P_QUOTE_APPROVED_AT, time());
+    } elseif ($to_state === SD_Quote_State::PRESENTED) {
+      update_post_meta($quote_id, SD_Meta::P_QUOTE_PRESENTED_AT, time());
+    } elseif ($to_state === SD_Quote_State::ACCEPTED) {
+      update_post_meta($quote_id, SD_Meta::P_QUOTE_ACCEPTED_AT, time());
+    } elseif ($to_state === SD_Quote_State::REJECTED) {
+      update_post_meta($quote_id, SD_Meta::P_QUOTE_REJECTED_AT, time());
+    }
+
+    $lead_id = (int) get_post_meta($quote_id, SD_Meta::LEAD_ID, true);
+    if ($lead_id > 0) {
+      if (in_array($to_state, [SD_Quote_State::DRAFT, SD_Quote_State::PENDING_OPERATOR], true)) {
+        update_post_meta($lead_id, SD_Meta::LEAD_STATUS, 'LEAD_QUOTING');
+      } elseif (in_array($to_state, [SD_Quote_State::APPROVED, SD_Quote_State::PRESENTED], true)) {
+        update_post_meta($lead_id, SD_Meta::LEAD_STATUS, 'LEAD_QUOTED');
+      } elseif ($to_state === SD_Quote_State::ACCEPTED) {
+        update_post_meta($lead_id, SD_Meta::LEAD_STATUS, 'LEAD_AUTH_PENDING');
+      } elseif (in_array($to_state, [SD_Quote_State::REJECTED, SD_Quote_State::EXPIRED, SD_Quote_State::CANCELLED], true)) {
+        update_post_meta($lead_id, SD_Meta::LEAD_STATUS, 'LEAD_DECLINED');
+      }
+
+      update_post_meta($lead_id, SD_Meta::P_STATE_UPDATED_AT, time());
+    }
+
+    self::log('quote_state_set', [
       'quote_id' => $quote_id,
       'from'     => $from,
       'to'       => $to_state,
@@ -129,5 +119,11 @@ final class SD_Module_QuoteStateService {
     ]);
 
     return true;
+  }
+
+  private static function log(string $event, array $ctx = []) : void {
+    if (class_exists('SD_Util')) {
+      SD_Util::log($event, $ctx);
+    }
   }
 }
