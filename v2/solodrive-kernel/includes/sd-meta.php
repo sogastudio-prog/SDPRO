@@ -147,6 +147,24 @@ final class SD_Meta {
   public const BLOCK_START_TS  = 'sd_start_ts';
   public const BLOCK_END_TS    = 'sd_end_ts';
 
+    // ---------------------------------------------------------------------------
+  // Timeblock supply / spend
+  // ---------------------------------------------------------------------------
+  public const TIMEBLOCK_START_TS    = 'sd_timeblock_start_ts';
+  public const TIMEBLOCK_END_TS      = 'sd_timeblock_end_ts';
+  public const TIMEBLOCK_CAPACITY    = 'sd_timeblock_capacity';
+  public const TIMEBLOCK_SPENT       = 'sd_timeblock_spent';
+  public const TIMEBLOCK_STATUS      = 'sd_timeblock_status';     // OPEN|HELD|COMMITTED|EXPIRED|UNAVAILABLE
+  public const TIMEBLOCK_DRIVER_ID   = 'sd_timeblock_driver_id';
+  public const TIMEBLOCK_LEAD_ID     = 'sd_timeblock_lead_id';
+  public const TIMEBLOCK_RIDE_ID     = 'sd_timeblock_ride_id';
+  public const TIMEBLOCK_HELD_AT     = 'sd_timeblock_held_at';
+  public const TIMEBLOCK_COMMITTED_AT= 'sd_timeblock_committed_at';
+
+  // lead-side pointers to held/committed blocks
+  public const TIMEBLOCK_IDS_JSON    = 'sd_timeblock_ids_json';
+  public const P_AVAILABILITY_REASON = '_sd_availability_reason';
+
   // Optional future-proof block fields
   public const BLOCK_SOURCE         = 'sd_block_source';
   public const BLOCK_DRIVER_USER_ID = 'sd_driver_user_id';
