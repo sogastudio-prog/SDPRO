@@ -75,25 +75,12 @@ final class SD_Module_StorefrontEntry {
   // ---------------------------------------------------------------------------
 
   private static function render_request_workflow(int $tenant_id, array $gate) : string {
-    /**
-     * Existing workflow bridge.
-     * For now, keep using the proven intake/request shortcode.
-     */
-    $html = do_shortcode('[sd_request]');
-
-    /**
-     * Optional wrapper so storefront workflow is visually scoped.
-     */
-    if (trim($html) === '') {
-      return '';
-    }
-
-    ob_start();
-    echo '<div class="sd-storefront-entry-workflow">';
-      echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-    echo '</div>';
-    return (string) ob_get_clean();
+  if (!class_exists('SD_Module_StorefrontIntake', false)) {
+    return '';
   }
+
+  return SD_Module_StorefrontIntake::render($tenant_id, $gate);
+}
 
   // ---------------------------------------------------------------------------
   // Fallback rendering
