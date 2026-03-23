@@ -2,7 +2,7 @@
 /**
  * Plugin Name: SoloDrive Kernel
  * Description: Core plugin for SoloDrive platform.
- * Version: 0.1.0
+ * Version: 0.1.1
  * Author: SoloDrive
  */
 
