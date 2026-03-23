@@ -18,3 +18,15 @@ Thumbs.db
 # Temp files
 *.tmp
 *.swp
+
+*.zip
+*.tar
+*.gz
+
+node_modules/
+vendor-bin/
+.tmp/
+temp/
+logs/
+
+.env
