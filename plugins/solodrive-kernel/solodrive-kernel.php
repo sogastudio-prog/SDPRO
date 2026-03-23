@@ -9,7 +9,7 @@
 if (!defined('ABSPATH')) { exit; }
 
 define('SD_KERNEL_FILE', __FILE__);
-
+define('SD_KERNEL_VERSION', '0.1.1');
 define('SD_KERNEL_PATH', plugin_dir_path(__FILE__));
 define('SD_KERNEL_URL', plugin_dir_url(__FILE__));
 
