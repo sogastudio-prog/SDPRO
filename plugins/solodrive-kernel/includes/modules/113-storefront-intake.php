@@ -46,7 +46,14 @@ final class SD_Module_StorefrontIntake {
     }
 
     $request_mode = SD_Meta::LEAD_MODE_ASAP;
-    $ajax_url = admin_url('admin-ajax.php');
+
+    /**
+     * IMPORTANT:
+     * Use SAME-ORIGIN relative path, never admin_url(), because tenant domains
+     * may resolve to app.solodrive.pro underneath and admin_url() can produce a
+     * cross-origin browser request that fails with CORS.
+     */
+    $ajax_path = '/wp-admin/admin-ajax.php';
 
     ob_start();
     ?>
@@ -224,7 +231,7 @@ final class SD_Module_StorefrontIntake {
       var form = document.getElementById('sd-storefront-intake-form');
       if (!form) return;
 
-      var ajaxUrl = <?php echo wp_json_encode($ajax_url); ?>;
+      var ajaxUrl = <?php echo wp_json_encode($ajax_path); ?>;
       var errorWrap = document.getElementById('sd-storefront-intake-error');
       var errorMsg = document.getElementById('sd-storefront-intake-error-message');
       var submitBtn = document.getElementById('sd-storefront-submit-btn');
@@ -285,12 +292,23 @@ final class SD_Module_StorefrontIntake {
           var response = await fetch(ajaxUrl, {
             method: 'POST',
             body: formData,
-            credentials: 'same-origin'
+            credentials: 'same-origin',
+            headers: {
+              'X-Requested-With': 'XMLHttpRequest'
+            }
           });
 
-          var json = await response.json();
+          var text = await response.text();
+          var json = null;
 
-          if (!json || !json.success || !json.data || !json.data.redirect_url) {
+          try {
+            json = JSON.parse(text);
+          } catch (parseErr) {
+            showError('Server returned a non-JSON response. Check PHP fatal errors/logs.');
+            return;
+          }
+
+          if (!response.ok || !json || !json.success || !json.data || !json.data.redirect_url) {
             var message = (json && json.data && json.data.error) ? json.data.error : 'Could not create request.';
             showError(message);
             return;
