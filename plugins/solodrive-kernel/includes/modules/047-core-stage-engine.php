@@ -222,31 +222,27 @@ final class SD_CoreStage {
   // ---------------------------------------------------------------------------
 
   private static function write_stage(int $lead_id, string $stage, string $reason = '') : void {
-    update_post_meta($lead_id, self::META_STAGE, $stage);
-    update_post_meta($lead_id, self::META_STAGE_TYPE, self::stage_type($stage));
-    update_post_meta($lead_id, self::META_STAGE_TS, time());
+  $from_stage = self::current_stage($lead_id);
 
-    if ($reason !== '') {
-      update_post_meta($lead_id, self::META_STAGE_REASON, $reason);
-    }
+  update_post_meta($lead_id, self::META_STAGE, $stage);
+  update_post_meta($lead_id, self::META_STAGE_TYPE, self::stage_type($stage));
+  update_post_meta($lead_id, self::META_STAGE_TS, time());
 
-    // Keep business lifecycle synchronized where appropriate.
-    self::sync_business_lifecycle($lead_id, $stage);
-
-    self::log_transition(
-      $lead_id,
-      self::current_stage_before_write($lead_id),
-      $stage,
-      $reason,
-      true,
-      'ok'
-    );
+  if ($reason !== '') {
+    update_post_meta($lead_id, self::META_STAGE_REASON, $reason);
   }
 
-  private static function current_stage_before_write(int $lead_id) : string {
-    $stage = get_post_meta($lead_id, self::META_STAGE, true);
-    return is_string($stage) ? trim($stage) : '';
-  }
+  self::sync_business_lifecycle($lead_id, $stage);
+
+  self::log_transition(
+    $lead_id,
+    $from_stage,
+    $stage,
+    $reason,
+    true,
+    'ok'
+  );
+}
 
   private static function fire_stage_hook(int $lead_id, string $stage, string $from_stage, string $reason) : void {
     /**
