@@ -86,9 +86,9 @@ final class SD_Module_QuoteStateService {
     update_post_meta($quote_id, SD_Meta::QUOTE_STATUS, $to_state);
     update_post_meta($quote_id, SD_Meta::P_QUOTE_STATUS_UPDATED_AT, time());
 
-    if ($to_state === SD_Quote_State::APPROVED) {
+    if ($to_state === SD_Meta::QUOTE_APPROVED) {
       update_post_meta($quote_id, SD_Meta::P_QUOTE_APPROVED_AT, time());
-    } elseif ($to_state === SD_Quote_State::PRESENTED) {
+    } elseif ($to_state === SD_Meta::QUOTE_PRESENTED) {
       update_post_meta($quote_id, SD_Meta::P_QUOTE_PRESENTED_AT, time());
     } elseif ($to_state === SD_Quote_State::ACCEPTED) {
       update_post_meta($quote_id, SD_Meta::P_QUOTE_ACCEPTED_AT, time());
@@ -100,11 +100,11 @@ final class SD_Module_QuoteStateService {
     if ($lead_id > 0) {
       if (in_array($to_state, [SD_Quote_State::DRAFT, SD_Quote_State::PENDING_OPERATOR], true)) {
         update_post_meta($lead_id, SD_Meta::LEAD_STATUS, 'LEAD_QUOTING');
-      } elseif (in_array($to_state, [SD_Quote_State::APPROVED, SD_Quote_State::PRESENTED], true)) {
+      } elseif (in_array($to_state, [SD_Meta::QUOTE_APPROVED, SD_Meta::QUOTE_PRESENTED], true)) {
         update_post_meta($lead_id, SD_Meta::LEAD_STATUS, 'LEAD_QUOTED');
       } elseif ($to_state === SD_Quote_State::ACCEPTED) {
         update_post_meta($lead_id, SD_Meta::LEAD_STATUS, 'LEAD_AUTH_PENDING');
-      } elseif (in_array($to_state, [SD_Quote_State::REJECTED, SD_Quote_State::EXPIRED, SD_Quote_State::CANCELLED], true)) {
+      } elseif (in_array($to_state, [SD_Quote_State::REJECTED, SD_Meta::QUOTE_EXPIRED, SD_Quote_State::CANCELLED], true)) {
         update_post_meta($lead_id, SD_Meta::LEAD_STATUS, 'LEAD_DECLINED');
       }
 

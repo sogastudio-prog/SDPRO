@@ -82,7 +82,7 @@ final class SD_Module_StripeLifecycleListener {
     ) {
       SD_Module_QuoteStateService::set(
         $quote_id,
-        SD_Quote_State::PAYMENT_PENDING,
+        SD_Meta::QUOTE_PAYMENT_PENDING,
         [
           'source'     => 'stripe_authorized',
           'attempt_id' => $attempt_id,

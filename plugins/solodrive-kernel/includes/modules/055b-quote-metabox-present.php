@@ -130,7 +130,7 @@ final class SD_Module_Admin_QuotePresentMetabox {
       self::redirect_back($quote_id, 'rejected');
     }
 
-    $ok = SD_Module_QuoteStateService::set($quote_id, SD_Quote_State::PRESENTED, [
+    $ok = SD_Module_QuoteStateService::set($quote_id, SD_Meta::QUOTE_PRESENTED, [
       'source' => 'admin_metabox',
       'user'   => get_current_user_id(),
     ]);
@@ -221,11 +221,11 @@ final class SD_Module_Admin_QuotePresentMetabox {
     if ($state === '') return false;
     if (!class_exists('SD_Quote_State')) return false;
 
-    if ($state === SD_Quote_State::PRESENTED || $state === SD_Quote_State::PAYMENT_PENDING) {
+    if ($state === SD_Meta::QUOTE_PRESENTED || $state === SD_Meta::QUOTE_PAYMENT_PENDING {
       return false;
     }
 
-    return SD_Quote_State::can_transition($state, SD_Quote_State::PRESENTED);
+    return SD_Quote_State::can_transition($state, SD_Meta::QUOTE_PRESENTED);
   }
 
   private static function quote_cpt() : string {

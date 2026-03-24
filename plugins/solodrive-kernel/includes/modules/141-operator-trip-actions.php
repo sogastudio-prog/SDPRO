@@ -60,7 +60,7 @@ final class SD_Module_OperatorTripActions {
     }
 
     $current = SD_Module_QuoteStateService::get($quote_id);
-    if (!in_array($current, [SD_Quote_State::PROPOSED, SD_Quote_State::APPROVED], true)) {
+    if (!in_array($current, [SD_Quote_State::PROPOSED, SD_Meta::QUOTE_APPROVED], true)) {
       self::redirect_back($ride_id, 'quote_state_blocked');
     }
 
@@ -81,7 +81,7 @@ final class SD_Module_OperatorTripActions {
     self::write_tenant_decision_audit($quote_id, 'approve', '');
     update_post_meta($quote_id, SD_Meta::P_QUOTE_PRESENTED_AT, time());
 
-    $state_ok = SD_Module_QuoteStateService::set($quote_id, SD_Quote_State::PRESENTED, [
+    $state_ok = SD_Module_QuoteStateService::set($quote_id, SD_Meta::QUOTE_PRESENTED, [
       'source'  => 'operator_surface',
       'action'  => 'approve_quote',
       'user_id' => get_current_user_id(),
@@ -371,7 +371,7 @@ final class SD_Module_OperatorTripActions {
     self::write_tenant_decision_audit($quote_id, 'adjust', 'Presented adjusted quote');
     update_post_meta($quote_id, SD_Meta::P_QUOTE_PRESENTED_AT, time());
 
-    $state_ok = SD_Module_QuoteStateService::set($quote_id, SD_Quote_State::PRESENTED, [
+    $state_ok = SD_Module_QuoteStateService::set($quote_id, SD_Meta::QUOTE_PRESENTED, [
       'source'  => 'operator_surface',
       'action'  => 'present_adjusted_quote',
       'user_id' => get_current_user_id(),

@@ -152,7 +152,7 @@ final class SD_Module_QuoteService {
 
       $status = (string) get_post_meta($quote_id, SD_Meta::QUOTE_STATUS, true);
       if (in_array($status, ['DRAFT', 'PENDING_OPERATOR', 'APPROVED', 'PRESENTED'], true)) {
-        SD_Module_QuoteStateService::set($quote_id, SD_Quote_State::SUPERSEDED, [
+        SD_Module_QuoteStateService::set($quote_id, SD_Meta::QUOTE_SUPERSEDED, [
           'lead_id' => $lead_id,
           'reason'  => 'new_active_quote',
         ]);
