@@ -47,142 +47,147 @@ final class SD_Module_TripSurface {
   }
 
   public static function template_redirect() : void {
-    $token = trim((string) get_query_var(self::QV_TRIP_TOKEN));
+  $token = trim((string) get_query_var(self::QV_TRIP_TOKEN));
 
-    if ($token === '') {
-      $token = self::token_from_request_path();
-    }
-
-    if ($token === '') return;
-
-    nocache_headers();
-    header('X-Robots-Tag: noindex, nofollow', true);
-    
-    exit;
+  if ($token === '') {
+    $token = self::token_from_request_path();
   }
+
+  if ($token === '') return;
+
+  nocache_headers();
+  header('X-Robots-Tag: noindex, nofollow', true);
+
+  self::render_trip_surface($token);
+  exit;
+}
 
   // ---------------------------------------------------------------------------
   // Route render
   // ---------------------------------------------------------------------------
 
-  private static function render_trip_surface(string $token) : void {
-    status_header(200);
+private static function render_trip_surface(string $token) : void {
+  status_header(200);
 
-    $lead_id = self::lead_id_from_token($token);
-    if ($lead_id <= 0) {
-      self::render_shell('Trip', self::styles() . self::render_notice_card('Trip not found.'));
-      return;
-    }
-    $lead_id = self::resolve_lead_id_from_token();
-
-if ($lead_id <= 0) {
-  return;
-}
-
-if (!class_exists('SD_CoreReadiness', false) || !class_exists('SD_CoreStage', false)) {
-  return;
-}
-
-$current_stage = SD_CoreStage::current_stage($lead_id);
-
-if ($current_stage === '' && SD_CoreReadiness::lead_is_captured($lead_id)) {
-  SD_CoreStage::initialize($lead_id, SD_CoreStage::LEAD_CAPTURED, 'Trip surface boot initialized captured lead.');
-  $current_stage = SD_CoreStage::current_stage($lead_id);
-}
-
-if ($current_stage === SD_CoreStage::LEAD_CAPTURED
-    && SD_CoreReadiness::can_enter_stage($lead_id, SD_CoreStage::LEAD_NEEDS_ROUTE_INTEL)) {
-  SD_CoreStage::advance($lead_id, SD_CoreStage::LEAD_NEEDS_ROUTE_INTEL, 'Trip surface boot.');
-}
-    $lead     = self::read_lead_context($lead_id, $token);
-    $ride_id  = (int) ($lead['promoted_ride_id'] ?? 0);
-
-    if ($ride_id <= 0) {
-      self::render_lead_surface($lead);
-      return;
-    }
-
-    $ride     = self::read_ride_context($ride_id, $token);
-    $quote_id = self::resolve_quote_id_for_ride($ride_id);
-    $quote    = self::read_quote_context($quote_id, $ride_id);
-    $attempt  = self::read_attempt_context($ride_id, $quote_id);
-    $exec     = class_exists('SD_Module_OperatorExecutionIntel')
-      ? SD_Module_OperatorExecutionIntel::read_for_ride($ride_id)
-      : [];
-    $display  = self::build_display_model($ride, $quote, $attempt, $exec);
-
-    $pickup  = self::short_city_address((string) ($ride['pickup_text'] ?? ''));
-    $dropoff = self::short_city_address((string) ($ride['dropoff_text'] ?? ''));
-    $state_body = self::render_state_body($ride, $quote, $attempt, $display);
-    $show_quote_first = ((string) ($quote['status'] ?? '') === 'PRESENTED');
-    $live_update_card = self::render_live_update_card($ride, $quote, $display, $exec);
-
-    $html  = self::styles();
-    $html .= '<div class="sd-trip-wrap">';
-
-    $html .= '<div class="sd-trip-card sd-trip-hero">';
-    $html .= '<div class="sd-trip-hero-top">';
-    $html .=   '<div class="sd-trip-hero-route">';
-    $html .=     '<span id="sd-trip-route-sub" class="sd-trip-route-sub">' . esc_html($pickup !== '' ? ($pickup . ' →') : '') . '</span>';
-    $html .=   '</div>';
-    $html .=   '<div id="sd-trip-hero-ride" class="sd-trip-hero-ride">Ride #' . (int) $ride_id . '</div>';
-    $html .= '</div>';
-
-    $html .= '<div id="sd-trip-hero-destination" class="sd-trip-hero-destination">';
-    $html .= esc_html($dropoff !== '' ? $dropoff : 'Your Trip');
-    $html .= '</div>';
-
-    if (!empty($display['hero_eta_line'])) {
-      $html .= '<div id="sd-trip-hero-eta" class="sd-trip-hero-eta">' . esc_html((string) $display['hero_eta_line']) . '</div>';
-    } else {
-      $html .= '<div id="sd-trip-hero-eta" class="sd-trip-hero-eta" style="display:none"></div>';
-    }
-
-    $html .= '<div id="sd-trip-headline" class="sd-trip-status-headline">' . esc_html((string) $display['headline']) . '</div>';
-    $html .= '<div id="sd-trip-subheadline" class="sd-trip-sub sd-trip-sub-strong">' . esc_html((string) $display['subheadline']) . '</div>';
-    $html .= '</div>';
-
-if (isset($_GET['pay'])) {
-  $pay = sanitize_key((string) wp_unslash($_GET['pay']));
-  if ($pay === 'cancel') {
-    $html .= self::render_banner('Payment was cancelled. Your quote is still available if it has not expired.', 'warn');
-  } elseif ($pay === 'conflict') {
-    $html .= self::render_banner('This trip can no longer be confirmed because it conflicts with an existing scheduled commitment.', 'error');
-  } elseif ($pay === 'error') {
-    $html .= self::render_banner('Unable to start checkout right now. Please try again.', 'error');
+  $lead_id = self::lead_id_from_token($token);
+  if ($lead_id <= 0) {
+    self::render_shell('Trip', self::styles() . self::render_notice_card('Trip not found.'));
+    return;
   }
-}
 
-    $html .= '<div id="sd-trip-live-update">' . $live_update_card . '</div>';
-    $html .= '<div id="sd-trip-live-map-wrap">' . self::render_live_map_card($ride, $exec) . '</div>';
-    $html .= '<div id="sd-trip-debug-wrap">' . self::render_live_map_debug_card() . '</div>';
+  if (class_exists('SD_CoreReadiness', false) && class_exists('SD_CoreStage', false)) {
+    $current_stage = SD_CoreStage::current_stage($lead_id);
 
-    if ($show_quote_first && $state_body !== '') {
-      $html .= '<div id="sd-trip-state-body">';
-      $html .= $state_body;
-      $html .= '</div>';
-    } else {
-      $html .= '<div id="sd-trip-state-body"></div>';
+    if ($current_stage === '' && SD_CoreReadiness::lead_is_captured($lead_id)) {
+      SD_CoreStage::initialize(
+        $lead_id,
+        SD_CoreStage::LEAD_CAPTURED,
+        'Trip surface boot initialized captured lead.'
+      );
+      $current_stage = SD_CoreStage::current_stage($lead_id);
     }
 
-    $html .= self::render_timeline_card(
-      $display['timeline'],
-      (string) ($display['current_step'] ?? '')
-    );
-
-    if (!$show_quote_first && $state_body !== '') {
-      $html .= '<div id="sd-trip-state-body-secondary">';
-      $html .= $state_body;
-      $html .= '</div>';
-    } else {
-      $html .= '<div id="sd-trip-state-body-secondary"></div>';
+    if (
+      $current_stage === SD_CoreStage::LEAD_CAPTURED &&
+      SD_CoreReadiness::can_enter_stage($lead_id, SD_CoreStage::LEAD_NEEDS_ROUTE_INTEL)
+    ) {
+      SD_CoreStage::advance(
+        $lead_id,
+        SD_CoreStage::LEAD_NEEDS_ROUTE_INTEL,
+        'Trip surface boot.'
+      );
     }
-
-    $html .= self::polling_js((string) $ride['token']);
-    $html .= '</div>';
-
-    self::render_shell('Trip', $html);
   }
+
+  $lead    = self::read_lead_context($lead_id, $token);
+  $ride_id = (int) ($lead['promoted_ride_id'] ?? 0);
+
+  if ($ride_id <= 0) {
+    self::render_lead_surface($lead);
+    return;
+  }
+
+  $ride     = self::read_ride_context($ride_id, $token);
+  $quote_id = self::resolve_quote_id_for_ride($ride_id);
+  $quote    = self::read_quote_context($quote_id, $ride_id);
+  $attempt  = self::read_attempt_context($ride_id, $quote_id);
+  $exec     = class_exists('SD_Module_OperatorExecutionIntel')
+    ? SD_Module_OperatorExecutionIntel::read_for_ride($ride_id)
+    : [];
+  $display  = self::build_display_model($ride, $quote, $attempt, $exec);
+
+  $pickup  = self::short_city_address((string) ($ride['pickup_text'] ?? ''));
+  $dropoff = self::short_city_address((string) ($ride['dropoff_text'] ?? ''));
+  $state_body = self::render_state_body($ride, $quote, $attempt, $display);
+  $show_quote_first = ((string) ($quote['status'] ?? '') === 'PRESENTED');
+  $live_update_card = self::render_live_update_card($ride, $quote, $display, $exec);
+
+  $html  = self::styles();
+  $html .= '<div class="sd-trip-wrap">';
+
+  $html .= '<div class="sd-trip-card sd-trip-hero">';
+  $html .= '<div class="sd-trip-hero-top">';
+  $html .=   '<div class="sd-trip-hero-route">';
+  $html .=     '<span id="sd-trip-route-sub" class="sd-trip-route-sub">' . esc_html($pickup !== '' ? ($pickup . ' →') : '') . '</span>';
+  $html .=   '</div>';
+  $html .=   '<div id="sd-trip-hero-ride" class="sd-trip-hero-ride">Ride #' . (int) $ride_id . '</div>';
+  $html .= '</div>';
+
+  $html .= '<div id="sd-trip-hero-destination" class="sd-trip-hero-destination">';
+  $html .= esc_html($dropoff !== '' ? $dropoff : 'Your Trip');
+  $html .= '</div>';
+
+  if (!empty($display['hero_eta_line'])) {
+    $html .= '<div id="sd-trip-hero-eta" class="sd-trip-hero-eta">' . esc_html((string) $display['hero_eta_line']) . '</div>';
+  } else {
+    $html .= '<div id="sd-trip-hero-eta" class="sd-trip-hero-eta" style="display:none"></div>';
+  }
+
+  $html .= '<div id="sd-trip-headline" class="sd-trip-status-headline">' . esc_html((string) $display['headline']) . '</div>';
+  $html .= '<div id="sd-trip-subheadline" class="sd-trip-sub sd-trip-sub-strong">' . esc_html((string) $display['subheadline']) . '</div>';
+  $html .= '</div>';
+
+  if (isset($_GET['pay'])) {
+    $pay = sanitize_key((string) wp_unslash($_GET['pay']));
+    if ($pay === 'cancel') {
+      $html .= self::render_banner('Payment was cancelled. Your quote is still available if it has not expired.', 'warn');
+    } elseif ($pay === 'conflict') {
+      $html .= self::render_banner('This trip can no longer be confirmed because it conflicts with an existing scheduled commitment.', 'error');
+    } elseif ($pay === 'error') {
+      $html .= self::render_banner('Unable to start checkout right now. Please try again.', 'error');
+    }
+  }
+
+  $html .= '<div id="sd-trip-live-update">' . $live_update_card . '</div>';
+  $html .= '<div id="sd-trip-live-map-wrap">' . self::render_live_map_card($ride, $exec) . '</div>';
+  $html .= '<div id="sd-trip-debug-wrap">' . self::render_live_map_debug_card() . '</div>';
+
+  if ($show_quote_first && $state_body !== '') {
+    $html .= '<div id="sd-trip-state-body">';
+    $html .= $state_body;
+    $html .= '</div>';
+  } else {
+    $html .= '<div id="sd-trip-state-body"></div>';
+  }
+
+  $html .= self::render_timeline_card(
+    $display['timeline'],
+    (string) ($display['current_step'] ?? '')
+  );
+
+  if (!$show_quote_first && $state_body !== '') {
+    $html .= '<div id="sd-trip-state-body-secondary">';
+    $html .= $state_body;
+    $html .= '</div>';
+  } else {
+    $html .= '<div id="sd-trip-state-body-secondary"></div>';
+  }
+
+  $html .= self::polling_js((string) $ride['token']);
+  $html .= '</div>';
+
+  self::render_shell('Trip', $html);
+}
 
   private static function render_state_body(array $ride, array $quote, array $attempt, array $display) : string {
   $quote_status = (string) ($quote['status'] ?? '');
