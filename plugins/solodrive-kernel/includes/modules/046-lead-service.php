@@ -136,6 +136,9 @@ final class SD_Module_LeadService {
       'trip_url' => $trip_url,
       'error'    => '',
     ];
+    if (class_exists('SD_CoreStage', false)) {
+    SD_CoreStage::initialize($lead_id, SD_CoreStage::LEAD_CAPTURED, 'Lead captured from storefront intake.');
+    }
   }
 
   private static function is_valid_phone(string $value) : bool {

@@ -57,7 +57,7 @@ final class SD_Module_TripSurface {
 
     nocache_headers();
     header('X-Robots-Tag: noindex, nofollow', true);
-
+    SD_CoreStage::advance($lead_id, SD_CoreStage::LEAD_NEEDS_ROUTE_INTEL, 'Trip runtime boot.');
     self::render_trip_surface($token);
     exit;
   }
