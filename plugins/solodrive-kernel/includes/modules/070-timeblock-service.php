@@ -17,16 +17,16 @@ final class SD_Module_TimeblockService {
     add_action('sd_lead_created', [__CLASS__, 'handle_lead_created'], 20, 3);
   }
 
-  public static function handle_lead_created(int $lead_id, int $tenant_id, array $ctx = []) : void {
-    $lead_id   = absint($lead_id);
-    $tenant_id = absint($tenant_id);
-
-    if ($lead_id <= 0 || $tenant_id <= 0) {
-      return;
-    }
-
-    self::evaluate_lead($lead_id, $tenant_id);
-  }
+ // public static function handle_lead_created(int $lead_id, int $tenant_id, array $ctx = []) : void {
+ //   $lead_id   = absint($lead_id);
+  //  $tenant_id = absint($tenant_id);
+//
+//    if ($lead_id <= 0 || $tenant_id <= 0) {
+//      return;
+//    }
+//
+//    self::evaluate_lead($lead_id, $tenant_id);
+//  }
 
   public static function evaluate_lead(int $lead_id, int $tenant_id = 0) : array {
     $lead_id = absint($lead_id);
