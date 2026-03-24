@@ -57,8 +57,7 @@ final class SD_Module_TripSurface {
 
     nocache_headers();
     header('X-Robots-Tag: noindex, nofollow', true);
-    SD_CoreStage::advance($lead_id, SD_CoreStage::LEAD_NEEDS_ROUTE_INTEL, 'Trip runtime boot.');
-    self::render_trip_surface($token);
+    
     exit;
   }
 
@@ -74,7 +73,27 @@ final class SD_Module_TripSurface {
       self::render_shell('Trip', self::styles() . self::render_notice_card('Trip not found.'));
       return;
     }
+    $lead_id = self::resolve_lead_id_from_token();
 
+if ($lead_id <= 0) {
+  return;
+}
+
+if (!class_exists('SD_CoreReadiness', false) || !class_exists('SD_CoreStage', false)) {
+  return;
+}
+
+$current_stage = SD_CoreStage::current_stage($lead_id);
+
+if ($current_stage === '' && SD_CoreReadiness::lead_is_captured($lead_id)) {
+  SD_CoreStage::initialize($lead_id, SD_CoreStage::LEAD_CAPTURED, 'Trip surface boot initialized captured lead.');
+  $current_stage = SD_CoreStage::current_stage($lead_id);
+}
+
+if ($current_stage === SD_CoreStage::LEAD_CAPTURED
+    && SD_CoreReadiness::can_enter_stage($lead_id, SD_CoreStage::LEAD_NEEDS_ROUTE_INTEL)) {
+  SD_CoreStage::advance($lead_id, SD_CoreStage::LEAD_NEEDS_ROUTE_INTEL, 'Trip surface boot.');
+}
     $lead     = self::read_lead_context($lead_id, $token);
     $ride_id  = (int) ($lead['promoted_ride_id'] ?? 0);
 
