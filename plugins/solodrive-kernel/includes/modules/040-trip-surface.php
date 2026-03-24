@@ -66,10 +66,12 @@ final class SD_Module_TripSurface {
   // Route render
   // ---------------------------------------------------------------------------
 
-private static function render_trip_surface(string $token) : void {
+  private static function render_trip_surface(string $token) : void {
   status_header(200);
 
-  $lead_id = self::lead_id_from_token($token);
+  $eng = self::engagement_from_token($token);
+  $lead_id = (int) ($eng['lead_id'] ?? 0);
+
   if ($lead_id <= 0) {
     self::render_shell('Trip', self::styles() . self::render_notice_card('Trip not found.'));
     return;
@@ -99,25 +101,24 @@ private static function render_trip_surface(string $token) : void {
     }
   }
 
-  $lead    = self::read_lead_context($lead_id, $token);
-  $ride_id = (int) ($lead['promoted_ride_id'] ?? 0);
+  $lead    = (array) ($eng['lead'] ?? []);
+  $quote   = (array) ($eng['quote'] ?? []);
+  $attempt = (array) ($eng['attempt'] ?? []);
+  $ride    = (array) ($eng['ride'] ?? []);
+  $ride_id = (int) ($eng['promoted_ride_id'] ?? 0);
 
   if ($ride_id <= 0) {
     self::render_lead_surface($lead);
     return;
   }
 
-  $ride     = self::read_ride_context($ride_id, $token);
-  $quote_id = self::resolve_quote_id_for_ride($ride_id);
-  $quote    = self::read_quote_context($quote_id, $ride_id);
-  $attempt  = self::read_attempt_context($ride_id, $quote_id);
-  $exec     = class_exists('SD_Module_OperatorExecutionIntel')
+  $exec = class_exists('SD_Module_OperatorExecutionIntel')
     ? SD_Module_OperatorExecutionIntel::read_for_ride($ride_id)
     : [];
-  $display  = self::build_display_model($ride, $quote, $attempt, $exec);
 
-  $pickup  = self::short_city_address((string) ($ride['pickup_text'] ?? ''));
-  $dropoff = self::short_city_address((string) ($ride['dropoff_text'] ?? ''));
+  $display  = self::build_display_model($ride, $quote, $attempt, $exec);
+  $pickup   = self::short_city_address((string) ($ride['pickup_text'] ?? ''));
+  $dropoff  = self::short_city_address((string) ($ride['dropoff_text'] ?? ''));
   $state_body = self::render_state_body($ride, $quote, $attempt, $display);
   $show_quote_first = ((string) ($quote['status'] ?? '') === 'PRESENTED');
   $live_update_card = self::render_live_update_card($ride, $quote, $display, $exec);
@@ -130,7 +131,7 @@ private static function render_trip_surface(string $token) : void {
   $html .=   '<div class="sd-trip-hero-route">';
   $html .=     '<span id="sd-trip-route-sub" class="sd-trip-route-sub">' . esc_html($pickup !== '' ? ($pickup . ' →') : '') . '</span>';
   $html .=   '</div>';
-  $html .=   '<div id="sd-trip-hero-ride" class="sd-trip-hero-ride">Ride #' . (int) $ride_id . '</div>';
+  $html .=   '<div id="sd-trip-hero-ride" class="sd-trip-hero-ride">Lead #' . (int) $lead_id . '</div>';
   $html .= '</div>';
 
   $html .= '<div id="sd-trip-hero-destination" class="sd-trip-hero-destination">';
@@ -163,9 +164,7 @@ private static function render_trip_surface(string $token) : void {
   $html .= '<div id="sd-trip-debug-wrap">' . self::render_live_map_debug_card() . '</div>';
 
   if ($show_quote_first && $state_body !== '') {
-    $html .= '<div id="sd-trip-state-body">';
-    $html .= $state_body;
-    $html .= '</div>';
+    $html .= '<div id="sd-trip-state-body">' . $state_body . '</div>';
   } else {
     $html .= '<div id="sd-trip-state-body"></div>';
   }
@@ -176,18 +175,16 @@ private static function render_trip_surface(string $token) : void {
   );
 
   if (!$show_quote_first && $state_body !== '') {
-    $html .= '<div id="sd-trip-state-body-secondary">';
-    $html .= $state_body;
-    $html .= '</div>';
+    $html .= '<div id="sd-trip-state-body-secondary">' . $state_body . '</div>';
   } else {
     $html .= '<div id="sd-trip-state-body-secondary"></div>';
   }
 
-  $html .= self::polling_js((string) $ride['token']);
+  $html .= self::polling_js((string) $token);
   $html .= '</div>';
 
   self::render_shell('Trip', $html);
-}
+  }
 
   private static function render_state_body(array $ride, array $quote, array $attempt, array $display) : string {
   $quote_status = (string) ($quote['status'] ?? '');
@@ -457,7 +454,7 @@ if ($quote_status !== 'PRESENTED') {
   // Public API payload
   // ---------------------------------------------------------------------------
 
-  public static function public_trip_status_payload(string $token) : array {
+ public static function public_trip_status_payload(string $token) : array {
   $token = trim($token);
   if ($token === '') {
     return [
@@ -466,25 +463,82 @@ if ($quote_status !== 'PRESENTED') {
     ];
   }
 
-  $ride_id = self::ride_id_from_token($token);
-  if ($ride_id <= 0) {
+  $eng = self::engagement_from_token($token);
+  $lead_id = (int) ($eng['lead_id'] ?? 0);
+
+  if ($lead_id <= 0) {
     return [
       'ok' => false,
       'message' => 'Trip not found.',
     ];
   }
 
-  $ride     = self::read_ride_context($ride_id, $token);
-  $quote_id = self::resolve_quote_id_for_ride($ride_id);
-  $quote    = self::read_quote_context($quote_id, $ride_id);
-  $attempt  = self::read_attempt_context($ride_id, $quote_id);
-  $exec     = class_exists('SD_Module_OperatorExecutionIntel')
+  $lead    = (array) ($eng['lead'] ?? []);
+  $quote   = (array) ($eng['quote'] ?? []);
+  $attempt = (array) ($eng['attempt'] ?? []);
+  $ride    = (array) ($eng['ride'] ?? []);
+  $ride_id = (int) ($eng['promoted_ride_id'] ?? 0);
+
+  if ($ride_id <= 0) {
+    $headline = 'Request received';
+    $subheadline = 'Your request is in progress. Keep this page open for updates.';
+    $mode = strtoupper((string) ($lead['request_mode'] ?? 'ASAP'));
+    $req_ts = (int) ($lead['requested_ts'] ?? 0);
+
+    if ((string) ($lead['lead_status'] ?? '') === 'LEAD_UNAVAILABLE') {
+      $headline = 'Currently unavailable';
+      $subheadline = 'We captured your request but cannot service it right now.';
+    }
+
+    return [
+      'ok'                => true,
+      'lead_id'           => $lead_id,
+      'ride_id'           => 0,
+      'headline'          => $headline,
+      'subheadline'       => $subheadline,
+      'body_message'      => $subheadline,
+      'timeline'          => [],
+      'lead_status'       => (string) ($lead['lead_status'] ?? ''),
+      'ride_state'        => '',
+      'quote_status'      => (string) ($quote['status'] ?? ''),
+      'pickup_text'       => (string) ($lead['pickup_text'] ?? ''),
+      'dropoff_text'      => (string) ($lead['dropoff_text'] ?? ''),
+      'trip_title'        => self::short_city_address((string) ($lead['dropoff_text'] ?? '')),
+      'route_text'        => self::route_text($lead),
+      'hero_meta'         => ['Lead #' . $lead_id],
+      'hero_eta_line'     => ($mode === 'RESERVE' && $req_ts > 0) ? ('Requested for ' . wp_date('M j, g:i a', $req_ts)) : 'Requested now',
+      'state_body_html'   => '',
+      'live_update_html'  => '',
+      'live_map_html'     => '',
+      'pickup_lat'        => 0,
+      'pickup_lng'        => 0,
+      'driver_lat'        => 0,
+      'driver_lng'        => 0,
+      'driver_ts'         => 0,
+      'arrived_at_ts'     => 0,
+      'current_step'      => 'request',
+      'show_quote_first'  => false,
+      'debug' => [
+        'server_time'        => time(),
+        'lead_id'            => $lead_id,
+        'lead_status'        => (string) ($lead['lead_status'] ?? ''),
+        'core_stage'         => (string) ($lead['core_stage'] ?? ''),
+        'core_stage_type'    => (string) ($lead['core_stage_type'] ?? ''),
+        'current_quote_id'   => (int) ($lead['current_quote_id'] ?? 0),
+        'current_attempt_id' => (int) ($lead['current_attempt_id'] ?? 0),
+        'promoted_ride_id'   => (int) ($lead['promoted_ride_id'] ?? 0),
+      ],
+    ];
+  }
+
+  $exec = class_exists('SD_Module_OperatorExecutionIntel')
     ? SD_Module_OperatorExecutionIntel::read_for_ride($ride_id)
     : [];
   $display  = self::build_display_model($ride, $quote, $attempt, $exec);
 
   return [
     'ok'               => true,
+    'lead_id'          => $lead_id,
     'ride_id'          => $ride_id,
     'headline'         => (string) $display['headline'],
     'subheadline'      => (string) $display['subheadline'],
@@ -512,6 +566,7 @@ if ($quote_status !== 'PRESENTED') {
     'show_quote_first' => ((string) ($quote['status'] ?? '') === 'PRESENTED'),
     'debug' => [
       'server_time'          => time(),
+      'lead_id'              => $lead_id,
       'ride_state'           => (string) ($ride['ride_state'] ?? ''),
       'quote_status'         => (string) ($quote['status'] ?? ''),
       'exec_phase'           => (string) ($exec['phase'] ?? ''),
@@ -553,21 +608,25 @@ if ($quote_status !== 'PRESENTED') {
   }
 
   private static function read_lead_context(int $lead_id, string $token) : array {
-    $tenant_id = (int) get_post_meta($lead_id, SD_Meta::TENANT_ID, true);
+  $tenant_id = (int) get_post_meta($lead_id, SD_Meta::TENANT_ID, true);
 
-    return [
-      'lead_id'           => $lead_id,
-      'tenant_id'         => $tenant_id,
-      'token'             => $token,
-      'pickup_text'       => (string) get_post_meta($lead_id, SD_Meta::PICKUP_TEXT, true),
-      'dropoff_text'      => (string) get_post_meta($lead_id, SD_Meta::DROPOFF_TEXT, true),
-      'lead_status'       => (string) get_post_meta($lead_id, SD_Meta::LEAD_STATUS, true),
-      'request_mode'      => (string) get_post_meta($lead_id, SD_Meta::REQUEST_MODE, true),
-      'requested_ts'      => (int) get_post_meta($lead_id, SD_Meta::REQUESTED_TS, true),
-      'promoted_ride_id'  => (int) get_post_meta($lead_id, SD_Meta::PROMOTED_RIDE_ID, true),
-      'availability'      => (string) get_post_meta($lead_id, SD_Meta::AVAILABILITY_STATUS, true),
-    ];
-  }
+  return [
+    'lead_id'             => $lead_id,
+    'tenant_id'           => $tenant_id,
+    'token'               => $token,
+    'pickup_text'         => (string) get_post_meta($lead_id, SD_Meta::PICKUP_TEXT, true),
+    'dropoff_text'        => (string) get_post_meta($lead_id, SD_Meta::DROPOFF_TEXT, true),
+    'lead_status'         => (string) get_post_meta($lead_id, SD_Meta::LEAD_STATUS, true),
+    'request_mode'        => (string) get_post_meta($lead_id, SD_Meta::REQUEST_MODE, true),
+    'requested_ts'        => (int) get_post_meta($lead_id, SD_Meta::REQUESTED_TS, true),
+    'availability'        => (string) get_post_meta($lead_id, SD_Meta::AVAILABILITY_STATUS, true),
+    'current_quote_id'    => (int) get_post_meta($lead_id, SD_Meta::CURRENT_QUOTE_ID, true),
+    'current_attempt_id'  => (int) get_post_meta($lead_id, SD_Meta::CURRENT_ATTEMPT_ID, true),
+    'promoted_ride_id'    => (int) get_post_meta($lead_id, SD_Meta::PROMOTED_RIDE_ID, true),
+    'core_stage'          => class_exists('SD_CoreStage', false) ? SD_CoreStage::current_stage($lead_id) : '',
+    'core_stage_type'     => class_exists('SD_CoreStage', false) ? SD_CoreStage::current_stage_type($lead_id) : '',
+  ];
+}
 
   private static function render_lead_surface(array $lead) : void {
     $pickup   = self::short_city_address((string) ($lead['pickup_text'] ?? ''));
@@ -764,7 +823,98 @@ if ($quote_status !== 'PRESENTED') {
     $dropoff = trim((string) ($ride['dropoff_text'] ?? ''));
     if ($dropoff !== '') return $dropoff;
     return 'Your Trip';
+    }
+
+  
+
+  private static function engagement_from_token(string $token) : array {
+  $token = trim($token);
+
+  $lead_id = self::lead_id_from_token($token);
+  if ($lead_id <= 0) {
+    return [
+      'lead_id'            => 0,
+      'token'              => $token,
+      'lead'               => [],
+      'current_quote_id'   => 0,
+      'current_attempt_id' => 0,
+      'promoted_ride_id'   => 0,
+      'quote'              => [],
+      'attempt'            => [],
+      'ride'               => [],
+    ];
   }
+
+  $lead = self::read_lead_context($lead_id, $token);
+
+  $quote_id   = (int) ($lead['current_quote_id'] ?? 0);
+  $attempt_id = (int) ($lead['current_attempt_id'] ?? 0);
+  $ride_id    = (int) ($lead['promoted_ride_id'] ?? 0);
+
+  $quote   = self::read_quote_context_from_lead($quote_id, $lead_id);
+  $attempt = self::read_attempt_context_from_lead($attempt_id, $lead_id, $quote_id);
+  $ride    = ($ride_id > 0) ? self::read_ride_context($ride_id, $token) : [];
+
+  return [
+    'lead_id'            => $lead_id,
+    'token'              => $token,
+    'lead'               => $lead,
+    'current_quote_id'   => $quote_id,
+    'current_attempt_id' => $attempt_id,
+    'promoted_ride_id'   => $ride_id,
+    'quote'              => $quote,
+    'attempt'            => $attempt,
+    'ride'               => $ride,
+  ];
+  }
+
+private static function read_quote_context_from_lead(int $quote_id, int $lead_id) : array {
+  if ($quote_id <= 0 || get_post_type($quote_id) !== 'sd_quote') {
+    return [
+      'quote_id'       => 0,
+      'lead_id'        => $lead_id,
+      'status'         => '',
+      'draft'          => [],
+      'total_cents'    => 0,
+      'currency'       => 'usd',
+      'pickup_eta_min' => 0,
+    ];
+  }
+
+  $draft = self::parse_quote_draft_payload($quote_id);
+
+  return [
+    'quote_id'       => $quote_id,
+    'lead_id'        => $lead_id,
+    'status'         => (string) get_post_meta($quote_id, SD_Meta::QUOTE_STATUS, true),
+    'draft'          => $draft,
+    'total_cents'    => (int) get_post_meta($quote_id, SD_Meta::QUOTE_TOTAL_CENTS, true),
+    'currency'       => (string) get_post_meta($quote_id, SD_Meta::QUOTE_CURRENCY, true) ?: 'usd',
+    'pickup_eta_min' => (int) ($draft['quote']['pickup_eta_min'] ?? 0),
+  ];
+}
+
+private static function read_attempt_context_from_lead(int $attempt_id, int $lead_id, int $quote_id) : array {
+  if ($attempt_id <= 0 || get_post_type($attempt_id) !== 'sd_attempt') {
+    return [
+      'attempt_id'    => 0,
+      'lead_id'       => $lead_id,
+      'quote_id'      => $quote_id,
+      'status'        => '',
+      'authorized_at' => 0,
+      'captured_at'   => 0,
+    ];
+  }
+
+  return [
+    'attempt_id'    => $attempt_id,
+    'lead_id'       => $lead_id,
+    'quote_id'      => $quote_id,
+    'status'        => (string) get_post_meta($attempt_id, SD_Meta::P_ATTEMPT_STATUS, true),
+    'authorized_at' => (int) get_post_meta($attempt_id, SD_Meta::P_ATTEMPT_AUTHORIZED_AT, true),
+    'captured_at'   => (int) get_post_meta($attempt_id, SD_Meta::P_STRIPE_CAPTURED_AT, true),
+  ];
+}
 
   private static function route_text(array $ride) : string {
     $pickup  = trim((string) ($ride['pickup_text'] ?? ''));
@@ -1737,11 +1887,11 @@ HTML;
   
   private static function ride_has_block_conflict(int $ride_id) : bool {
   return ((int) get_post_meta($ride_id, '_sd_block_conflict', true)) === 1;
-}
+  }
 
   private static function styles() : string {
     return <<<HTML
-<style>
+  <style>
   :root{
     --sd-bg:#f6f7fb;
     --sd-card:#ffffff;
