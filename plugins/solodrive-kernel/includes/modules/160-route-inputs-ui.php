@@ -191,5 +191,3 @@ final class SD_Module_RouteInputsUI {
     ]) . ';', 'after');
   }
 }
-
-SD_Module_RouteInputsUI::register();

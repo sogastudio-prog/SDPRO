@@ -160,5 +160,3 @@ final class SD_Module_RouteCompute {
     return null;
   }
 }
-
-SD_Module_RouteCompute::register();
