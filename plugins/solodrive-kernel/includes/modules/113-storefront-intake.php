@@ -5,18 +5,16 @@ if (!defined('ABSPATH')) { exit; }
  * SD_Module_StorefrontIntake
  *
  * Purpose:
- * - Render the canonical public storefront intake form
- * - Submit to one canonical lead creation path
+ * - Render canonical public storefront intake form
+ * - Submit via AJAX/JSON
+ * - Create lead through SD_Module_LeadService
  * - Redirect successful submissions to /trip/<token>/
  *
  * Canon:
  * - Lead is the engagement root
  * - This form creates only a lead
  * - No quote / attempt / ride creation here
- *
- * Integration:
- * - Called from SD_Module_StorefrontEntry::render_request_workflow()
- * - Submits to admin-post.php action=sd_storefront_submit_lead
+ * - Public submit returns explicit redirect_url from server
  */
 
 if (class_exists('SD_Module_StorefrontIntake', false)) { return; }
@@ -24,11 +22,10 @@ if (class_exists('SD_Module_StorefrontIntake', false)) { return; }
 final class SD_Module_StorefrontIntake {
 
   private const ACTION = 'sd_storefront_submit_lead';
-  private const NONCE  = 'sd_storefront_submit_lead';
 
   public static function register() : void {
-    add_action('admin_post_nopriv_' . self::ACTION, [__CLASS__, 'handle_submit']);
-    add_action('admin_post_' . self::ACTION,        [__CLASS__, 'handle_submit']);
+    add_action('wp_ajax_nopriv_' . self::ACTION, [__CLASS__, 'handle_submit']);
+    add_action('wp_ajax_' . self::ACTION,        [__CLASS__, 'handle_submit']);
   }
 
   /**
@@ -48,25 +45,20 @@ final class SD_Module_StorefrontIntake {
       return self::notice('Storefront unavailable.', $message);
     }
 
-    $sticky = self::sticky_from_query();
-    $error  = isset($_GET['sd_sf_error']) ? sanitize_text_field(wp_unslash((string) $_GET['sd_sf_error'])) : '';
-
-    $request_mode = $sticky['sd_request_mode'] !== '' ? $sticky['sd_request_mode'] : SD_Meta::LEAD_MODE_ASAP;
+    $request_mode = SD_Meta::LEAD_MODE_ASAP;
+    $ajax_url = admin_url('admin-ajax.php');
 
     ob_start();
     ?>
     <div class="sd-storefront-intake">
-      <?php if ($error !== '') : ?>
-        <div class="sd-card sd-card--error tenant-storefront-card" style="margin-bottom:16px;">
-          <strong>We could not create your request.</strong>
-          <div><?php echo esc_html($error); ?></div>
-        </div>
-      <?php endif; ?>
+      <div id="sd-storefront-intake-error" class="sd-card sd-card--error tenant-storefront-card" style="margin-bottom:16px;display:none;">
+        <strong>We could not create your request.</strong>
+        <div id="sd-storefront-intake-error-message"></div>
+      </div>
 
-      <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="sd-storefront-intake__form">
+      <form id="sd-storefront-intake-form" class="sd-storefront-intake__form" novalidate>
         <input type="hidden" name="action" value="<?php echo esc_attr(self::ACTION); ?>">
         <input type="hidden" name="sd_tenant_id" value="<?php echo esc_attr((string) $tenant_id); ?>">
-        <?php wp_nonce_field(self::NONCE, '_sd_nonce'); ?>
 
         <div class="sd-card tenant-storefront-card" style="margin-bottom:16px;">
           <h2 class="sd-h2">Request a Ride</h2>
@@ -79,16 +71,16 @@ final class SD_Module_StorefrontIntake {
             id="sd_pickup_address"
             name="pickup_address"
             type="text"
-            value="<?php echo esc_attr($sticky['pickup_address']); ?>"
+            value=""
             autocomplete="street-address"
             placeholder="Enter pickup location"
             required
             style="width:100%;margin-top:6px;"
           >
 
-          <input type="hidden" id="sd_pickup_place_id" name="pickup_place_id" value="<?php echo esc_attr($sticky['pickup_place_id']); ?>">
-          <input type="hidden" id="sd_pickup_lat" name="pickup_lat" value="<?php echo esc_attr($sticky['pickup_lat']); ?>">
-          <input type="hidden" id="sd_pickup_lng" name="pickup_lng" value="<?php echo esc_attr($sticky['pickup_lng']); ?>">
+          <input type="hidden" id="sd_pickup_place_id" name="pickup_place_id" value="">
+          <input type="hidden" id="sd_pickup_lat" name="pickup_lat" value="">
+          <input type="hidden" id="sd_pickup_lng" name="pickup_lng" value="">
 
           <div style="height:12px;"></div>
 
@@ -97,16 +89,16 @@ final class SD_Module_StorefrontIntake {
             id="sd_dropoff_address"
             name="dropoff_address"
             type="text"
-            value="<?php echo esc_attr($sticky['dropoff_address']); ?>"
+            value=""
             autocomplete="street-address"
             placeholder="Enter dropoff location"
             required
             style="width:100%;margin-top:6px;"
           >
 
-          <input type="hidden" id="sd_dropoff_place_id" name="dropoff_place_id" value="<?php echo esc_attr($sticky['dropoff_place_id']); ?>">
-          <input type="hidden" id="sd_dropoff_lat" name="dropoff_lat" value="<?php echo esc_attr($sticky['dropoff_lat']); ?>">
-          <input type="hidden" id="sd_dropoff_lng" name="dropoff_lng" value="<?php echo esc_attr($sticky['dropoff_lng']); ?>">
+          <input type="hidden" id="sd_dropoff_place_id" name="dropoff_place_id" value="">
+          <input type="hidden" id="sd_dropoff_lat" name="dropoff_lat" value="">
+          <input type="hidden" id="sd_dropoff_lng" name="dropoff_lng" value="">
         </div>
 
         <div class="sd-card tenant-storefront-card" style="margin-bottom:16px;">
@@ -132,7 +124,7 @@ final class SD_Module_StorefrontIntake {
                   id="sd_reserve_date"
                   name="reserve_date"
                   type="date"
-                  value="<?php echo esc_attr($sticky['reserve_date']); ?>"
+                  value=""
                   style="width:100%;margin-top:6px;"
                 >
               </div>
@@ -143,7 +135,7 @@ final class SD_Module_StorefrontIntake {
                   id="sd_reserve_time"
                   name="reserve_time"
                   type="time"
-                  value="<?php echo esc_attr($sticky['reserve_time']); ?>"
+                  value=""
                   style="width:100%;margin-top:6px;"
                 >
               </div>
@@ -159,7 +151,7 @@ final class SD_Module_StorefrontIntake {
                 id="sd_customer_name"
                 name="customer_name"
                 type="text"
-                value="<?php echo esc_attr($sticky['customer_name']); ?>"
+                value=""
                 autocomplete="name"
                 placeholder="Your name"
                 required
@@ -173,7 +165,7 @@ final class SD_Module_StorefrontIntake {
                 id="sd_customer_phone"
                 name="customer_phone"
                 type="tel"
-                value="<?php echo esc_attr($sticky['customer_phone']); ?>"
+                value=""
                 autocomplete="tel"
                 placeholder="Your phone number"
                 required
@@ -190,7 +182,7 @@ final class SD_Module_StorefrontIntake {
               rows="3"
               placeholder="Gate code, pickup instructions, or other notes"
               style="width:100%;margin-top:6px;"
-            ><?php echo esc_textarea($sticky['reserve_notes']); ?></textarea>
+            ></textarea>
           </div>
         </div>
 
@@ -202,7 +194,7 @@ final class SD_Module_StorefrontIntake {
               <input
                 id="sd_pickup_place_id_manual"
                 type="text"
-                value="<?php echo esc_attr($sticky['pickup_place_id']); ?>"
+                value=""
                 placeholder="Manual fallback for testing"
                 style="width:100%;margin-top:6px;"
               >
@@ -213,7 +205,7 @@ final class SD_Module_StorefrontIntake {
               <input
                 id="sd_dropoff_place_id_manual"
                 type="text"
-                value="<?php echo esc_attr($sticky['dropoff_place_id']); ?>"
+                value=""
                 placeholder="Manual fallback for testing"
                 style="width:100%;margin-top:6px;"
               >
@@ -222,15 +214,20 @@ final class SD_Module_StorefrontIntake {
         </details>
 
         <div class="sd-card tenant-storefront-card">
-          <button type="submit" class="sd-btn sd-btn--primary">Continue</button>
+          <button type="submit" id="sd-storefront-submit-btn" class="sd-btn sd-btn--primary">Continue</button>
         </div>
       </form>
     </div>
 
     <script>
     (function() {
-      var form = document.currentScript ? document.currentScript.previousElementSibling : document.querySelector('.sd-storefront-intake__form');
+      var form = document.getElementById('sd-storefront-intake-form');
       if (!form) return;
+
+      var ajaxUrl = <?php echo wp_json_encode($ajax_url); ?>;
+      var errorWrap = document.getElementById('sd-storefront-intake-error');
+      var errorMsg = document.getElementById('sd-storefront-intake-error-message');
+      var submitBtn = document.getElementById('sd-storefront-submit-btn');
 
       var asap = form.querySelector('input[name="sd_request_mode"][value="<?php echo esc_js(SD_Meta::LEAD_MODE_ASAP); ?>"]');
       var reserve = form.querySelector('input[name="sd_request_mode"][value="<?php echo esc_js(SD_Meta::LEAD_MODE_RESERVE); ?>"]');
@@ -243,6 +240,18 @@ final class SD_Module_StorefrontIntake {
       var pickupManual = document.getElementById('sd_pickup_place_id_manual');
       var dropoffManual = document.getElementById('sd_dropoff_place_id_manual');
 
+      function showError(message) {
+        if (!errorWrap || !errorMsg) return;
+        errorMsg.textContent = message || 'Could not create request.';
+        errorWrap.style.display = '';
+      }
+
+      function clearError() {
+        if (!errorWrap || !errorMsg) return;
+        errorMsg.textContent = '';
+        errorWrap.style.display = 'none';
+      }
+
       function syncMode() {
         var isReserve = !!(reserve && reserve.checked);
         if (reserveWrap) reserveWrap.style.display = isReserve ? '' : 'none';
@@ -250,18 +259,59 @@ final class SD_Module_StorefrontIntake {
         if (reserveTime) reserveTime.required = isReserve;
       }
 
-      if (asap) asap.addEventListener('change', syncMode);
-      if (reserve) reserve.addEventListener('change', syncMode);
-      syncMode();
-
-      form.addEventListener('submit', function() {
+      function syncManualPlaceIds() {
         if (pickupHidden && pickupManual && !pickupHidden.value.trim()) {
           pickupHidden.value = pickupManual.value.trim();
         }
         if (dropoffHidden && dropoffManual && !dropoffHidden.value.trim()) {
           dropoffHidden.value = dropoffManual.value.trim();
         }
-      });
+      }
+
+      async function handleSubmit(event) {
+        event.preventDefault();
+        clearError();
+        syncManualPlaceIds();
+        syncMode();
+
+        if (submitBtn) {
+          submitBtn.disabled = true;
+          submitBtn.textContent = 'Submitting...';
+        }
+
+        try {
+          var formData = new FormData(form);
+
+          var response = await fetch(ajaxUrl, {
+            method: 'POST',
+            body: formData,
+            credentials: 'same-origin'
+          });
+
+          var json = await response.json();
+
+          if (!json || !json.success || !json.data || !json.data.redirect_url) {
+            var message = (json && json.data && json.data.error) ? json.data.error : 'Could not create request.';
+            showError(message);
+            return;
+          }
+
+          window.location.assign(json.data.redirect_url);
+        } catch (err) {
+          showError('Network or server error. Please try again.');
+        } finally {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Continue';
+          }
+        }
+      }
+
+      if (asap) asap.addEventListener('change', syncMode);
+      if (reserve) reserve.addEventListener('change', syncMode);
+      form.addEventListener('submit', handleSubmit);
+
+      syncMode();
     })();
     </script>
     <?php
@@ -269,100 +319,50 @@ final class SD_Module_StorefrontIntake {
   }
 
   public static function handle_submit() : void {
-    $nonce = isset($_POST['_sd_nonce']) ? sanitize_text_field(wp_unslash((string) $_POST['_sd_nonce'])) : '';
-    if (!wp_verify_nonce($nonce, self::NONCE)) {
-      self::redirect_back('Request verification failed.', $_POST);
-    }
-
     $tenant_id = isset($_POST['sd_tenant_id']) ? absint($_POST['sd_tenant_id']) : 0;
     if ($tenant_id <= 0) {
-      self::redirect_back('Missing tenant.', $_POST);
+      wp_send_json_error([
+        'error' => 'Missing tenant.',
+      ], 400);
     }
 
     if (class_exists('SD_StorefrontGate', false)) {
       $gate = SD_StorefrontGate::evaluate($tenant_id);
       if (empty($gate['can_render_request_form'])) {
         $message = isset($gate['message']) ? (string) $gate['message'] : 'This storefront is not accepting requests right now.';
-        self::redirect_back($message, $_POST);
+        wp_send_json_error([
+          'error' => $message,
+        ], 403);
       }
     }
 
     if (!class_exists('SD_Module_LeadService', false)) {
-      self::redirect_back('Lead service unavailable.', $_POST);
+      wp_send_json_error([
+        'error' => 'Lead service unavailable.',
+      ], 500);
     }
 
     $result = SD_Module_LeadService::create_from_intake(wp_unslash($_POST), $tenant_id);
 
     if (empty($result['ok'])) {
       $message = !empty($result['error']) ? (string) $result['error'] : 'Could not create request.';
-      self::redirect_back($message, $_POST);
+      wp_send_json_error([
+        'error' => $message,
+      ], 422);
     }
 
     $trip_url = isset($result['trip_url']) ? (string) $result['trip_url'] : '';
     if ($trip_url === '') {
-      self::redirect_back('Trip URL missing after lead creation.', $_POST);
+      wp_send_json_error([
+        'error' => 'Trip URL missing after lead creation.',
+      ], 500);
     }
 
-    wp_safe_redirect($trip_url);
-    exit;
-  }
-
-  private static function redirect_back(string $message, array $payload) : void {
-    $back = wp_get_referer();
-    if (!$back) {
-      $back = home_url('/');
-    }
-
-    $args = [
-      'sd_sf_error'     => rawurlencode($message),
-      'pickup_address'  => self::q($payload, 'pickup_address'),
-      'dropoff_address' => self::q($payload, 'dropoff_address'),
-      'pickup_place_id' => self::q($payload, 'pickup_place_id'),
-      'dropoff_place_id'=> self::q($payload, 'dropoff_place_id'),
-      'pickup_lat'      => self::q($payload, 'pickup_lat'),
-      'pickup_lng'      => self::q($payload, 'pickup_lng'),
-      'dropoff_lat'     => self::q($payload, 'dropoff_lat'),
-      'dropoff_lng'     => self::q($payload, 'dropoff_lng'),
-      'customer_name'   => self::q($payload, 'customer_name'),
-      'customer_phone'  => self::q($payload, 'customer_phone'),
-      'sd_request_mode' => self::q($payload, 'sd_request_mode', self::q($payload, 'request_mode', SD_Meta::LEAD_MODE_ASAP)),
-      'reserve_date'    => self::q($payload, 'reserve_date'),
-      'reserve_time'    => self::q($payload, 'reserve_time'),
-      'reserve_notes'   => self::q($payload, 'reserve_notes', self::q($payload, 'customer_notes')),
-    ];
-
-    $back = add_query_arg($args, $back);
-    wp_safe_redirect($back);
-    exit;
-  }
-
-  private static function sticky_from_query() : array {
-    return [
-      'pickup_address'  => self::g('pickup_address'),
-      'dropoff_address' => self::g('dropoff_address'),
-      'pickup_place_id' => self::g('pickup_place_id'),
-      'dropoff_place_id'=> self::g('dropoff_place_id'),
-      'pickup_lat'      => self::g('pickup_lat'),
-      'pickup_lng'      => self::g('pickup_lng'),
-      'dropoff_lat'     => self::g('dropoff_lat'),
-      'dropoff_lng'     => self::g('dropoff_lng'),
-      'customer_name'   => self::g('customer_name'),
-      'customer_phone'  => self::g('customer_phone'),
-      'sd_request_mode' => self::g('sd_request_mode', SD_Meta::LEAD_MODE_ASAP),
-      'reserve_date'    => self::g('reserve_date'),
-      'reserve_time'    => self::g('reserve_time'),
-      'reserve_notes'   => self::g('reserve_notes'),
-    ];
-  }
-
-  private static function g(string $key, string $default = '') : string {
-    if (!isset($_GET[$key])) return $default;
-    return sanitize_text_field(wp_unslash((string) $_GET[$key]));
-  }
-
-  private static function q(array $payload, string $key, string $default = '') : string {
-    if (!isset($payload[$key])) return $default;
-    return sanitize_text_field((string) $payload[$key]);
+    wp_send_json_success([
+      'lead_id'      => (int) $result['lead_id'],
+      'token'        => (string) $result['token'],
+      'redirect_url' => $trip_url,
+    ]);
   }
 
   private static function notice(string $headline, string $message) : string {
@@ -378,5 +378,3 @@ final class SD_Module_StorefrontIntake {
     return (string) ob_get_clean();
   }
 }
-
-SD_Module_StorefrontIntake::register();
