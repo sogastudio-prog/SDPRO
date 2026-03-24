@@ -153,4 +153,3 @@ final class SD_Module_ReservationSurface {
   }
 }
 
-SD_Module_ReservationSurface::register();
