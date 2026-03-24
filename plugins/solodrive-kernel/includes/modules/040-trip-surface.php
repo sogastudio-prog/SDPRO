@@ -625,80 +625,180 @@ private static function render_trip_surface(string $token) : void {
     return !empty($ids[0]) ? (int) $ids[0] : 0;
   }
 
-  private static function read_lead_context(int $lead_id, string $token) : array {
+private static function read_lead_context(int $lead_id, string $token) : array {
   $tenant_id = (int) get_post_meta($lead_id, SD_Meta::TENANT_ID, true);
 
   return [
-    'lead_id'             => $lead_id,
-    'tenant_id'           => $tenant_id,
-    'token'               => $token,
-    'pickup_text'         => (string) get_post_meta($lead_id, SD_Meta::PICKUP_TEXT, true),
-    'dropoff_text'        => (string) get_post_meta($lead_id, SD_Meta::DROPOFF_TEXT, true),
-    'lead_status'         => (string) get_post_meta($lead_id, SD_Meta::LEAD_STATUS, true),
-    'request_mode'        => (string) get_post_meta($lead_id, SD_Meta::REQUEST_MODE, true),
-    'requested_ts'        => (int) get_post_meta($lead_id, SD_Meta::REQUESTED_TS, true),
-    'availability'        => (string) get_post_meta($lead_id, SD_Meta::AVAILABILITY_STATUS, true),
-    'current_quote_id'    => (int) get_post_meta($lead_id, SD_Meta::CURRENT_QUOTE_ID, true),
-    'current_attempt_id'  => (int) get_post_meta($lead_id, SD_Meta::CURRENT_ATTEMPT_ID, true),
-    'promoted_ride_id'    => (int) get_post_meta($lead_id, SD_Meta::PROMOTED_RIDE_ID, true),
-    'core_stage'          => class_exists('SD_CoreStage', false) ? SD_CoreStage::current_stage($lead_id) : '',
-    'core_stage_type'     => class_exists('SD_CoreStage', false) ? SD_CoreStage::current_stage_type($lead_id) : '',
-    ];
-  }
+    'lead_id'           => $lead_id,
+    'tenant_id'         => $tenant_id,
+    'token'             => $token,
+    'pickup_text'       => (string) get_post_meta($lead_id, SD_Meta::PICKUP_TEXT, true),
+    'dropoff_text'      => (string) get_post_meta($lead_id, SD_Meta::DROPOFF_TEXT, true),
+    'lead_status'       => (string) get_post_meta($lead_id, SD_Meta::LEAD_STATUS, true),
+    'core_stage'        => class_exists('SD_CoreStage', false) ? SD_CoreStage::current_stage($lead_id) : '',
+    'core_stage_type'   => class_exists('SD_CoreStage', false) ? SD_CoreStage::current_stage_type($lead_id) : '',
+    'request_mode'      => (string) get_post_meta($lead_id, SD_Meta::REQUEST_MODE, true),
+    'requested_ts'      => (int) get_post_meta($lead_id, SD_Meta::REQUESTED_TS, true),
+    'promoted_ride_id'  => (int) get_post_meta($lead_id, SD_Meta::PROMOTED_RIDE_ID, true),
+    'availability'      => (string) get_post_meta($lead_id, SD_Meta::AVAILABILITY_STATUS, true),
+    'current_quote_id'  => (int) get_post_meta($lead_id, SD_Meta::CURRENT_QUOTE_ID, true),
+    'current_attempt_id'=> (int) get_post_meta($lead_id, SD_Meta::CURRENT_ATTEMPT_ID, true),
+  ];
+}
 
-  private static function render_lead_surface(array $lead) : void {
-    $pickup   = self::short_city_address((string) ($lead['pickup_text'] ?? ''));
-    $dropoff  = self::short_city_address((string) ($lead['dropoff_text'] ?? ''));
-    $headline = 'Request received';
-    $sub      = 'Your request is in progress. Keep this page open for updates.';
-    $status   = (string) ($lead['lead_status'] ?? '');
-    $mode     = strtoupper((string) ($lead['request_mode'] ?? 'ASAP'));
-    $req_ts   = (int) ($lead['requested_ts'] ?? 0);
+private static function render_lead_surface(array $lead) : void {
+  $pickup      = self::short_city_address((string) ($lead['pickup_text'] ?? ''));
+  $dropoff     = self::short_city_address((string) ($lead['dropoff_text'] ?? ''));
+  $mode        = strtoupper((string) ($lead['request_mode'] ?? 'ASAP'));
+  $req_ts      = (int) ($lead['requested_ts'] ?? 0);
+  $lead_id     = (int) ($lead['lead_id'] ?? 0);
+  $core_stage  = (string) ($lead['core_stage'] ?? '');
+  $stage_type  = (string) ($lead['core_stage_type'] ?? '');
+  $lead_status = (string) ($lead['lead_status'] ?? '');
+  $quote_id    = (int) ($lead['current_quote_id'] ?? 0);
 
-    if ($status === 'LEAD_UNAVAILABLE') {
-      $headline = 'Currently unavailable';
-      $sub = 'We captured your request but cannot service it right now.';
-    } elseif ($status === 'LEAD_PENDING_AVAILABILITY') {
+  $headline = 'Request received';
+  $sub      = 'Your request is in progress. Keep this page open for updates.';
+
+  switch ($core_stage) {
+    case 'LEAD_CAPTURED':
+      $headline = 'Request received';
+      $sub = 'Your request is in progress. Keep this page open for updates.';
+      break;
+
+    case 'LEAD_NEEDS_ROUTE_INTEL':
+      $headline = 'Analyzing route';
+      $sub = 'We are calculating route timing and trip details now.';
+      break;
+
+    case 'LEAD_NEEDS_TIMEBLOCK':
       $headline = 'Checking availability';
-      $sub = 'We are evaluating timing and availability now.';
-    } elseif ($status === 'LEAD_QUOTING') {
+      $sub = 'We are validating timing and availability now.';
+      break;
+
+    case 'LEAD_NEEDS_QUOTE':
       $headline = 'Preparing your quote';
-      $sub = 'We are building your trip details and pricing now.';
-    } elseif ($status === 'LEAD_QUOTED' || $status === 'LEAD_AUTH_PENDING') {
-      $headline = 'Next step coming soon';
-      $sub = 'Your request is ready for the next step.';
-    }
+      $sub = 'We are building your quote now.';
+      break;
 
-    $timing_line = ($mode === 'RESERVE' && $req_ts > 0)
-      ? 'Requested for ' . wp_date('M j, g:i a', $req_ts)
-      : 'Requested now';
+    case 'LEAD_NEEDS_DRIVER_REVIEW':
+      $headline = 'Quote under review';
+      $sub = 'Your quote is ready for operator review.';
+      break;
 
-    $html  = self::styles();
-    $html .= '<div class="sd-trip-wrap">';
-    $html .= '<div class="sd-trip-card sd-trip-hero">';
-    $html .= '<div class="sd-trip-hero-top">';
-    $html .= '<div class="sd-trip-hero-route">';
-    $html .= '<span class="sd-trip-route-sub">' . esc_html($pickup !== '' ? ($pickup . ' →') : '') . '</span>';
-    $html .= '</div>';
-    $html .= '<div class="sd-trip-hero-ride">Lead #' . (int) ($lead['lead_id'] ?? 0) . '</div>';
-    $html .= '</div>';
-    $html .= '<div class="sd-trip-hero-destination">' . esc_html($dropoff !== '' ? $dropoff : 'Your Request') . '</div>';
-    $html .= '<div class="sd-trip-hero-eta">' . esc_html($timing_line) . '</div>';
-    $html .= '<div class="sd-trip-status-headline">' . esc_html($headline) . '</div>';
-    $html .= '<div class="sd-trip-sub sd-trip-sub-strong">' . esc_html($sub) . '</div>';
-    $html .= '</div>';
-    $html .= '<div class="sd-trip-card">';
-    $html .= '<div class="sd-trip-section-title">Request details</div>';
-    $html .= '<div class="sd-trip-route-line"><strong>Pickup:</strong> ' . esc_html((string) ($lead['pickup_text'] ?? '—')) . '</div>';
-    $html .= '<div class="sd-trip-route-line"><strong>Dropoff:</strong> ' . esc_html((string) ($lead['dropoff_text'] ?? '—')) . '</div>';
-    $html .= '<div class="sd-trip-route-line"><strong>Mode:</strong> ' . esc_html($mode === 'RESERVE' ? 'Reservation' : 'ASAP') . '</div>';
-    $html .= '<div class="sd-trip-route-line"><strong>Timing:</strong> ' . esc_html($timing_line) . '</div>';
-    $html .= '<div class="sd-trip-route-line"><strong>Status:</strong> ' . esc_html($status !== '' ? $status : 'LEAD_CAPTURED') . '</div>';
-    $html .= '</div>';
-    $html .= '</div>';
-    self::render_shell('Trip', $html);
+    case 'LEAD_NEEDS_PRESENTATION':
+      $headline = 'Finalizing your quote';
+      $sub = 'Your quote is being prepared for presentation.';
+      break;
+
+    case 'LEAD_AWAITING_RIDER_DECISION':
+      $headline = 'Quote ready';
+      $sub = 'Your quote is ready for review and decision.';
+      break;
+
+    case 'LEAD_NEEDS_AUTH':
+      $headline = 'Authorization needed';
+      $sub = 'Review your quote and authorize payment to continue.';
+      break;
+
+    case 'LEAD_AUTHORIZED':
+      $headline = 'Payment secured';
+      $sub = 'Your payment method has been authorized.';
+      break;
+
+    case 'LEAD_NEEDS_RIDE_PROMOTION':
+      $headline = 'Confirming your trip';
+      $sub = 'Your request is being promoted into an operational ride.';
+      break;
+
+    case 'LEAD_PROMOTED':
+      $headline = 'Trip confirmed';
+      $sub = 'Your ride is now live.';
+      break;
+
+    case 'LEAD_EXCEPTION_ROUTE_INTEL':
+      $headline = 'Route update needed';
+      $sub = 'We are recalculating trip route details.';
+      break;
+
+    case 'LEAD_EXCEPTION_TIMEBLOCK':
+      $headline = 'Availability update needed';
+      $sub = 'We are rechecking availability.';
+      break;
+
+    case 'LEAD_EXCEPTION_QUOTE':
+      $headline = 'Quote update needed';
+      $sub = 'We are revising your quote.';
+      break;
+
+    case 'LEAD_EXCEPTION_AUTH':
+      $headline = 'Authorization issue';
+      $sub = 'We could not complete authorization. Please stay on this page for updates.';
+      break;
+
+    case 'LEAD_EXCEPTION_RIDER_CHANGE':
+      $headline = 'Trip change requested';
+      $sub = 'We are reviewing your requested trip change.';
+      break;
+
+    case 'LEAD_EXCEPTION_DRIVER_ADJUSTMENT':
+      $headline = 'Trip adjustment in progress';
+      $sub = 'Your operator is adjusting trip details.';
+      break;
+
+    case 'LEAD_EXCEPTION_CANCELLATION':
+      $headline = 'Trip cancelled';
+      $sub = 'This request has been cancelled.';
+      break;
+
+    default:
+      if ($quote_id > 0) {
+        $headline = 'Quote created';
+        $sub = 'Your quote exists and is moving through review.';
+      }
+      break;
   }
 
+  $timing_line = ($mode === 'RESERVE' && $req_ts > 0)
+    ? 'Requested for ' . wp_date('M j, g:i a', $req_ts)
+    : 'Requested now';
+
+  $html  = self::styles();
+  $html .= '<div class="sd-trip-wrap">';
+
+  $html .= '<div class="sd-trip-card sd-trip-hero">';
+  $html .= '<div class="sd-trip-hero-top">';
+  $html .= '<div class="sd-trip-hero-route">';
+  $html .= '<span class="sd-trip-route-sub">' . esc_html($pickup !== '' ? ($pickup . ' →') : '') . '</span>';
+  $html .= '</div>';
+  $html .= '<div class="sd-trip-hero-ride">Lead #' . $lead_id . '</div>';
+  $html .= '</div>';
+
+  $html .= '<div class="sd-trip-hero-destination">' . esc_html($dropoff !== '' ? $dropoff : 'Your Request') . '</div>';
+  $html .= '<div class="sd-trip-hero-eta">' . esc_html($timing_line) . '</div>';
+  $html .= '<div class="sd-trip-status-headline">' . esc_html($headline) . '</div>';
+  $html .= '<div class="sd-trip-sub sd-trip-sub-strong">' . esc_html($sub) . '</div>';
+  $html .= '</div>';
+
+  $html .= '<div class="sd-trip-card">';
+  $html .= '<div class="sd-trip-section-title">Request details</div>';
+  $html .= '<div class="sd-trip-route-line"><strong>Pickup:</strong> ' . esc_html((string) ($lead['pickup_text'] ?? '—')) . '</div>';
+  $html .= '<div class="sd-trip-route-line"><strong>Dropoff:</strong> ' . esc_html((string) ($lead['dropoff_text'] ?? '—')) . '</div>';
+  $html .= '<div class="sd-trip-route-line"><strong>Mode:</strong> ' . esc_html($mode === 'RESERVE' ? 'Reservation' : 'ASAP') . '</div>';
+  $html .= '<div class="sd-trip-route-line"><strong>Timing:</strong> ' . esc_html($timing_line) . '</div>';
+  $html .= '<div class="sd-trip-route-line"><strong>Core stage:</strong> ' . esc_html($core_stage !== '' ? $core_stage : '—') . '</div>';
+  $html .= '<div class="sd-trip-route-line"><strong>Stage type:</strong> ' . esc_html($stage_type !== '' ? $stage_type : '—') . '</div>';
+  $html .= '<div class="sd-trip-route-line"><strong>Lead status:</strong> ' . esc_html($lead_status !== '' ? $lead_status : '—') . '</div>';
+
+  if ($quote_id > 0) {
+    $html .= '<div class="sd-trip-route-line"><strong>Quote:</strong> Created</div>';
+  }
+
+  $html .= '</div>';
+  $html .= '</div>';
+
+  self::render_shell('Trip', $html);
+}
   private static function resolve_quote_id_for_ride(int $ride_id) : int {
     $from_ride = (int) get_post_meta($ride_id, SD_Meta::QUOTE_ID, true);
     if ($from_ride > 0 && get_post_type($from_ride) === 'sd_quote') {
