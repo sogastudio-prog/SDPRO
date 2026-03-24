@@ -120,5 +120,3 @@ final class SD_Module_ReservationConfirmationSurface {
     return (string) ob_get_clean();
   }
 }
-
-SD_Module_ReservationConfirmationSurface::register();
