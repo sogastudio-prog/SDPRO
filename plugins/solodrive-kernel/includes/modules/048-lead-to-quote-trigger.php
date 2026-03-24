@@ -98,6 +98,10 @@ final class SD_Module_LeadToQuoteTrigger {
         'post_type'   => SD_Meta::QUOTE_CPT,
         'post_status' => 'publish',
         'post_title'  => self::build_quote_title($lead_id),
+        'meta_input'  => [
+        SD_Meta::TENANT_ID => $tenant_id,
+        SD_Meta::LEAD_ID   => $lead_id,
+        ],
       ], true);
 
       if (is_wp_error($quote_id) || (int) $quote_id <= 0) {
@@ -106,8 +110,7 @@ final class SD_Module_LeadToQuoteTrigger {
 
       $quote_id = (int) $quote_id;
 
-      update_post_meta($quote_id, SD_Meta::TENANT_ID, $tenant_id);
-      update_post_meta($quote_id, SD_Meta::LEAD_ID, $lead_id);
+
       update_post_meta($quote_id, SD_Meta::QUOTE_STATUS, SD_Meta::QUOTE_PROPOSED);
 
       update_post_meta($quote_id, SD_Meta::QUOTE_TOTAL_CENTS, (int) $quote['total_cents']);
