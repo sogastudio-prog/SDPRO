@@ -101,20 +101,7 @@ private static function render_trip_surface(string $token) : void {
       $current_stage = SD_CoreStage::current_stage($lead_id);
     }
 
-    /**
-     * TEMP TEST ADVANCE ONLY
-     * ---------------------------------
-     * Proves the stage-gated quote loop works end-to-end
-     * before wiring real route intel / timeblock workers.
-     */
-    if ($current_stage === SD_CoreStage::LEAD_NEEDS_ROUTE_INTEL) {
-      SD_CoreStage::advance(
-        $lead_id,
-        SD_CoreStage::LEAD_NEEDS_TIMEBLOCK,
-        'Temporary auto-advance for pipeline validation.'
-      );
-      $current_stage = SD_CoreStage::current_stage($lead_id);
-    }
+    
 
     if ($current_stage === SD_CoreStage::LEAD_NEEDS_TIMEBLOCK) {
       SD_CoreStage::advance(
