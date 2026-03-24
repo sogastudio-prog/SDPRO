@@ -66,7 +66,7 @@ final class SD_Module_TripSurface {
   // Route render
   // ---------------------------------------------------------------------------
 
-  private static function render_trip_surface(string $token) : void {
+private static function render_trip_surface(string $token) : void {
   status_header(200);
 
   $eng = self::engagement_from_token($token);
@@ -98,8 +98,39 @@ final class SD_Module_TripSurface {
         SD_CoreStage::LEAD_NEEDS_ROUTE_INTEL,
         'Trip surface boot.'
       );
+      $current_stage = SD_CoreStage::current_stage($lead_id);
+    }
+
+    /**
+     * TEMP TEST ADVANCE ONLY
+     * ---------------------------------
+     * Proves the stage-gated quote loop works end-to-end
+     * before wiring real route intel / timeblock workers.
+     */
+    if ($current_stage === SD_CoreStage::LEAD_NEEDS_ROUTE_INTEL) {
+      SD_CoreStage::advance(
+        $lead_id,
+        SD_CoreStage::LEAD_NEEDS_TIMEBLOCK,
+        'Temporary auto-advance for pipeline validation.'
+      );
+      $current_stage = SD_CoreStage::current_stage($lead_id);
+    }
+
+    if ($current_stage === SD_CoreStage::LEAD_NEEDS_TIMEBLOCK) {
+      SD_CoreStage::advance(
+        $lead_id,
+        SD_CoreStage::LEAD_NEEDS_QUOTE,
+        'Temporary auto-advance for pipeline validation.'
+      );
+      $current_stage = SD_CoreStage::current_stage($lead_id);
     }
   }
+
+  /**
+   * Re-read engagement after stage progression, because quote creation
+   * may have occurred during LEAD_NEEDS_QUOTE worker execution.
+   */
+  $eng = self::engagement_from_token($token);
 
   $lead    = (array) ($eng['lead'] ?? []);
   $quote   = (array) ($eng['quote'] ?? []);
@@ -184,7 +215,7 @@ final class SD_Module_TripSurface {
   $html .= '</div>';
 
   self::render_shell('Trip', $html);
-  }
+}
 
   private static function render_state_body(array $ride, array $quote, array $attempt, array $display) : string {
   $quote_status = (string) ($quote['status'] ?? '');
@@ -366,24 +397,24 @@ final class SD_Module_TripSurface {
     }
 
     if ((int) get_post_meta($quote_id, SD_Meta::RIDE_ID, true) !== $ride_id) {
-  self::redirect_trip_with_flag($token, 'error');
-}
+    self::redirect_trip_with_flag($token, 'error');
+    }
 
-if (self::ride_has_block_conflict($ride_id)) {
-  if (class_exists('SD_Util')) {
+    if (self::ride_has_block_conflict($ride_id)) {
+    if (class_exists('SD_Util')) {
     SD_Util::log('trip_surface_checkout_block_conflict', [
       'ride_id'  => $ride_id,
       'quote_id' => $quote_id,
       'token'    => $token,
     ]);
-  }
-  self::redirect_trip_with_flag($token, 'conflict');
-}
+    }
+    self::redirect_trip_with_flag($token, 'conflict');
+    }
 
-$quote_status = (string) get_post_meta($quote_id, SD_Meta::QUOTE_STATUS, true);
-if ($quote_status !== 'PRESENTED') {
-  self::redirect_trip_with_flag($token, 'error');
-}
+    $quote_status = (string) get_post_meta($quote_id, SD_Meta::QUOTE_STATUS, true);
+    if ($quote_status !== 'PRESENTED') {
+    self::redirect_trip_with_flag($token, 'error');
+    }
 
     $endpoint = rest_url('sd/v1/checkout');
 
@@ -625,8 +656,8 @@ if ($quote_status !== 'PRESENTED') {
     'promoted_ride_id'    => (int) get_post_meta($lead_id, SD_Meta::PROMOTED_RIDE_ID, true),
     'core_stage'          => class_exists('SD_CoreStage', false) ? SD_CoreStage::current_stage($lead_id) : '',
     'core_stage_type'     => class_exists('SD_CoreStage', false) ? SD_CoreStage::current_stage_type($lead_id) : '',
-  ];
-}
+    ];
+  }
 
   private static function render_lead_surface(array $lead) : void {
     $pickup   = self::short_city_address((string) ($lead['pickup_text'] ?? ''));
