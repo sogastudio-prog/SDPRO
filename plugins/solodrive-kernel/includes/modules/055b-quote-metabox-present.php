@@ -89,7 +89,6 @@ final class SD_Module_Admin_QuotePresentMetabox {
       return;
     }
 
-    // Fail-soft fallback if helper is unavailable
     $render_read();
     echo '<hr>';
     $render_edit();
@@ -221,7 +220,7 @@ final class SD_Module_Admin_QuotePresentMetabox {
     if ($state === '') return false;
     if (!class_exists('SD_Quote_State')) return false;
 
-    if ($state === SD_Meta::QUOTE_PRESENTED || $state === SD_Meta::QUOTE_PAYMENT_PENDING {
+    if ($state === SD_Meta::QUOTE_PRESENTED || $state === SD_Meta::QUOTE_PAYMENT_PENDING) {
       return false;
     }
 
