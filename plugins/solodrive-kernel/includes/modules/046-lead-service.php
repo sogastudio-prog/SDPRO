@@ -123,11 +123,7 @@ final class SD_Module_LeadService {
 
     $trip_url = home_url('/trip/' . rawurlencode($token) . '/');
 
-    do_action('sd_lead_created', $lead_id, $tenant_id, [
-      'request_mode' => $mode,
-      'requested_ts' => $requested_ts,
-      'trip_url'     => $trip_url,
-    ]);
+
 
     return [
       'ok'       => true,
