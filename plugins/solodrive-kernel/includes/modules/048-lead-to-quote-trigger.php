@@ -5,111 +5,151 @@ if (!defined('ABSPATH')) { exit; }
  * SD_Module_LeadToQuoteTrigger
  *
  * Purpose:
- * - Listen for canonical lead creation
- * - Create exactly one initial quote for that lead
- * - Prevent duplicate quote creation
+ * - Create exactly one initial quote when the lead enters LEAD_NEEDS_QUOTE
+ * - Prevent duplicate quote creation at the stage boundary
  *
  * Canon:
  * - Lead is the engagement root
  * - Initial quote is a child artifact of lead
+ * - Initial quote creation is stage-gated
  * - This module does NOT create attempts or rides
  * - This module does NOT version or adjust quotes; initial quote only
  *
- * Notes:
- * - Idempotent by design
- * - If a current quote already exists on the lead, exits cleanly
- * - If a prior quote exists for the lead, it is reused as current if appropriate
+ * Stage ownership:
+ * - ONLY runs on sd_core_stage_LEAD_NEEDS_QUOTE
+ * - All other systems must advance the lead into quote stage
+ * - No other hook may create the initial quote directly
  */
 
 if (class_exists('SD_Module_LeadToQuoteTrigger', false)) { return; }
 
 final class SD_Module_LeadToQuoteTrigger {
 
+  private const JOB_STATE_KEY = '_sd_quote_job_state';
+
   public static function register() : void {
-    add_action('sd_lead_created', [__CLASS__, 'handle_lead_created'], 10, 3);
+    add_action('sd_core_stage_LEAD_NEEDS_QUOTE', [__CLASS__, 'handle_stage'], 10, 3);
   }
 
   /**
-   * Fired by SD_Module_LeadService after lead creation.
+   * Stage-gated initial quote creation.
    *
-   * Supported payload shapes:
-   * - do_action('sd_lead_created', $lead_id, $tenant_id, [...])
-   * - do_action('sd_lead_created', $lead_id, $normalized, $token)
-   *
-   * We only require the first arg to be the lead id.
+   * Hook signature from SD_CoreStage:
+   * do_action('sd_core_stage_' . $stage, $lead_id, $from_stage, $reason);
    */
-  public static function handle_lead_created($lead_id, $arg2 = null, $arg3 = null) : void {
+  public static function handle_stage($lead_id, $from_stage = '', $reason = '') : void {
     $lead_id = absint($lead_id);
     if ($lead_id <= 0) return;
     if (get_post_type($lead_id) !== SD_Module_LeadCPT::CPT) return;
 
-    // Idempotency guard 1: lead already points to a current quote.
-    $current_quote_id = absint(get_post_meta($lead_id, SD_Meta::CURRENT_QUOTE_ID, true));
-    if ($current_quote_id > 0 && get_post_type($current_quote_id) === SD_Meta::QUOTE_CPT) {
+    if (!class_exists('SD_CoreStage', false)) return;
+
+    // Hard stage guard: only run in LEAD_NEEDS_QUOTE.
+    if (SD_CoreStage::current_stage($lead_id) !== SD_CoreStage::LEAD_NEEDS_QUOTE) {
       return;
     }
 
-    // Idempotency guard 2: find any existing non-cancelled/non-superseded quote for this lead.
+    // Idempotency guard 1: usable current quote already exists.
+    $current_quote_id = absint(get_post_meta($lead_id, SD_Meta::CURRENT_QUOTE_ID, true));
+    if ($current_quote_id > 0 && get_post_type($current_quote_id) === SD_Meta::QUOTE_CPT) {
+      SD_CoreStage::advance(
+        $lead_id,
+        SD_CoreStage::LEAD_NEEDS_DRIVER_REVIEW,
+        'Usable current quote already exists.'
+      );
+      return;
+    }
+
+    // Idempotency guard 2: if a prior usable quote exists, reuse it.
     $existing_quote_id = self::find_existing_currentish_quote($lead_id);
     if ($existing_quote_id > 0) {
       update_post_meta($lead_id, SD_Meta::CURRENT_QUOTE_ID, $existing_quote_id);
-      self::maybe_advance_lead_to_waiting_quote($lead_id);
+      delete_post_meta($lead_id, SD_Meta::P_QUOTE_BUILD_ERROR);
+      update_post_meta($lead_id, self::JOB_STATE_KEY, 'done');
+
+      SD_CoreStage::advance(
+        $lead_id,
+        SD_CoreStage::LEAD_NEEDS_DRIVER_REVIEW,
+        'Reused existing quote.'
+      );
       return;
     }
 
-    $tenant_id = absint(get_post_meta($lead_id, SD_Meta::TENANT_ID, true));
-    if ($tenant_id <= 0) {
-      self::mark_quote_build_error($lead_id, 'Missing tenant_id on lead.');
+    // Concurrency / repeat-load guard.
+    $job_state = (string) get_post_meta($lead_id, self::JOB_STATE_KEY, true);
+    if ($job_state === 'running') {
       return;
     }
 
-    $quote = self::build_initial_quote_payload($lead_id, $tenant_id);
-    if (empty($quote['ok'])) {
-      self::mark_quote_build_error($lead_id, (string) ($quote['error'] ?? 'Quote build failed.'));
-      return;
+    update_post_meta($lead_id, self::JOB_STATE_KEY, 'running');
+
+    try {
+      $tenant_id = absint(get_post_meta($lead_id, SD_Meta::TENANT_ID, true));
+      if ($tenant_id <= 0) {
+        throw new \Exception('Missing tenant_id on lead.');
+      }
+
+      $quote = self::build_initial_quote_payload($lead_id, $tenant_id);
+      if (empty($quote['ok'])) {
+        throw new \Exception((string) ($quote['error'] ?? 'Quote build failed.'));
+      }
+
+      $quote_id = wp_insert_post([
+        'post_type'   => SD_Meta::QUOTE_CPT,
+        'post_status' => 'publish',
+        'post_title'  => self::build_quote_title($lead_id),
+      ], true);
+
+      if (is_wp_error($quote_id) || (int) $quote_id <= 0) {
+        throw new \Exception('Could not create quote record.');
+      }
+
+      $quote_id = (int) $quote_id;
+
+      update_post_meta($quote_id, SD_Meta::TENANT_ID, $tenant_id);
+      update_post_meta($quote_id, SD_Meta::LEAD_ID, $lead_id);
+      update_post_meta($quote_id, SD_Meta::QUOTE_STATUS, SD_Meta::QUOTE_PROPOSED);
+
+      update_post_meta($quote_id, SD_Meta::QUOTE_TOTAL_CENTS, (int) $quote['total_cents']);
+      update_post_meta($quote_id, SD_Meta::QUOTE_CURRENCY, (string) $quote['currency']);
+      update_post_meta($quote_id, SD_Meta::QUOTE_CONFIDENCE, (string) $quote['confidence']);
+      update_post_meta(
+        $quote_id,
+        SD_Meta::QUOTE_PRESENTABLE_TOTAL,
+        self::format_money((int) $quote['total_cents'], (string) $quote['currency'])
+      );
+
+      update_post_meta($quote_id, SD_Meta::ROUTE_METERS, (int) $quote['route_meters']);
+      update_post_meta($quote_id, SD_Meta::ROUTE_SECONDS, (int) $quote['route_seconds']);
+
+      update_post_meta($quote_id, SD_Meta::P_QUOTE_JOB_STATE, 'ok');
+      update_post_meta($quote_id, SD_Meta::P_QUOTE_BUILT_AT, time());
+      update_post_meta($quote_id, SD_Meta::P_QUOTE_STATUS_UPDATED_AT, time());
+
+      // Lead pointers.
+      update_post_meta($lead_id, SD_Meta::CURRENT_QUOTE_ID, $quote_id);
+      delete_post_meta($lead_id, SD_Meta::P_QUOTE_BUILD_ERROR);
+      update_post_meta($lead_id, SD_Meta::P_QUOTE_BUILT_AT, time());
+      update_post_meta($lead_id, SD_Meta::P_QUOTE_DRAFT_JSON, wp_json_encode($quote));
+      update_post_meta($lead_id, self::JOB_STATE_KEY, 'done');
+
+      // Advance stage only after successful quote creation.
+      SD_CoreStage::advance(
+        $lead_id,
+        SD_CoreStage::LEAD_NEEDS_DRIVER_REVIEW,
+        'Initial quote created.'
+      );
+
+      /**
+       * Downstream hook for operator review / presentation flow.
+       * Safe because initial quote creation is already stage-gated.
+       */
+      do_action('sd_quote_created', $quote_id, $lead_id, $tenant_id, $quote);
+
+    } catch (\Throwable $e) {
+      update_post_meta($lead_id, self::JOB_STATE_KEY, 'error');
+      self::mark_quote_build_error($lead_id, $e->getMessage());
     }
-
-    $quote_id = wp_insert_post([
-      'post_type'   => SD_Meta::QUOTE_CPT,
-      'post_status' => 'publish',
-      'post_title'  => self::build_quote_title($lead_id),
-    ], true);
-
-    if (is_wp_error($quote_id) || (int) $quote_id <= 0) {
-      self::mark_quote_build_error($lead_id, 'Could not create quote record.');
-      return;
-    }
-
-    $quote_id = (int) $quote_id;
-
-    update_post_meta($quote_id, SD_Meta::TENANT_ID, $tenant_id);
-    update_post_meta($quote_id, SD_Meta::LEAD_ID, $lead_id);
-    update_post_meta($quote_id, SD_Meta::QUOTE_STATUS, SD_Meta::QUOTE_PROPOSED);
-
-    update_post_meta($quote_id, SD_Meta::QUOTE_TOTAL_CENTS, (int) $quote['total_cents']);
-    update_post_meta($quote_id, SD_Meta::QUOTE_CURRENCY, (string) $quote['currency']);
-    update_post_meta($quote_id, SD_Meta::QUOTE_CONFIDENCE, (string) $quote['confidence']);
-    update_post_meta($quote_id, SD_Meta::QUOTE_PRESENTABLE_TOTAL, self::format_money((int) $quote['total_cents'], (string) $quote['currency']));
-
-    update_post_meta($quote_id, SD_Meta::ROUTE_METERS, (int) $quote['route_meters']);
-    update_post_meta($quote_id, SD_Meta::ROUTE_SECONDS, (int) $quote['route_seconds']);
-
-    update_post_meta($quote_id, SD_Meta::P_QUOTE_JOB_STATE, 'ok');
-    update_post_meta($quote_id, SD_Meta::P_QUOTE_BUILT_AT, time());
-    update_post_meta($quote_id, SD_Meta::P_QUOTE_STATUS_UPDATED_AT, time());
-
-    // Lead pointers.
-    update_post_meta($lead_id, SD_Meta::CURRENT_QUOTE_ID, $quote_id);
-    delete_post_meta($lead_id, SD_Meta::P_QUOTE_BUILD_ERROR);
-    update_post_meta($lead_id, SD_Meta::P_QUOTE_BUILT_AT, time());
-    update_post_meta($lead_id, SD_Meta::P_QUOTE_DRAFT_JSON, wp_json_encode($quote));
-
-    self::maybe_advance_lead_to_waiting_quote($lead_id);
-
-    /**
-     * Downstream hook for operator review / presentation flow.
-     */
-    do_action('sd_quote_created', $quote_id, $lead_id, $tenant_id, $quote);
   }
 
   /**
@@ -124,12 +164,12 @@ final class SD_Module_LeadToQuoteTrigger {
     $route_meters  = absint(get_post_meta($lead_id, SD_Meta::ROUTE_METERS, true));
     $route_seconds = absint(get_post_meta($lead_id, SD_Meta::ROUTE_SECONDS, true));
 
-    $base_fare      = self::tenant_money_float($tenant_id, SD_Meta::BASE_FARE, 0);
-    $minimum_fare   = self::tenant_money_float($tenant_id, SD_Meta::MINIMUM_FARE, 0);
-    $per_mile_rate  = self::tenant_money_float($tenant_id, SD_Meta::PER_MILE_RATE, 0);
-    $per_min_rate   = self::tenant_money_float($tenant_id, SD_Meta::PER_MINUTE_RATE, 0);
-    $service_fee    = self::tenant_money_float($tenant_id, SD_Meta::SERVICE_FEE, 0);
-    $currency       = self::tenant_string($tenant_id, SD_Meta::CURRENCY, 'USD');
+    $base_fare     = self::tenant_money_float($tenant_id, SD_Meta::BASE_FARE, 0);
+    $minimum_fare  = self::tenant_money_float($tenant_id, SD_Meta::MINIMUM_FARE, 0);
+    $per_mile_rate = self::tenant_money_float($tenant_id, SD_Meta::PER_MILE_RATE, 0);
+    $per_min_rate  = self::tenant_money_float($tenant_id, SD_Meta::PER_MINUTE_RATE, 0);
+    $service_fee   = self::tenant_money_float($tenant_id, SD_Meta::SERVICE_FEE, 0);
+    $currency      = self::tenant_string($tenant_id, SD_Meta::CURRENCY, 'USD');
 
     $miles   = ($route_meters > 0)  ? ($route_meters / 1609.344) : 0.0;
     $minutes = ($route_seconds > 0) ? ($route_seconds / 60.0)    : 0.0;
@@ -137,7 +177,6 @@ final class SD_Module_LeadToQuoteTrigger {
     $computed = $base_fare + ($miles * $per_mile_rate) + ($minutes * $per_min_rate) + $service_fee;
     $computed = max($computed, $minimum_fare);
 
-    // Safety floor: if tenant pricing is incomplete and total still zero, fail visibly.
     if ($computed <= 0) {
       return [
         'ok'    => false,
@@ -157,20 +196,13 @@ final class SD_Module_LeadToQuoteTrigger {
       'miles'         => round($miles, 2),
       'minutes'       => round($minutes, 1),
       'pricing'       => [
-        'base_fare'      => $base_fare,
-        'minimum_fare'   => $minimum_fare,
-        'per_mile_rate'  => $per_mile_rate,
-        'per_minute_rate'=> $per_min_rate,
-        'service_fee'    => $service_fee,
+        'base_fare'       => $base_fare,
+        'minimum_fare'    => $minimum_fare,
+        'per_mile_rate'   => $per_mile_rate,
+        'per_minute_rate' => $per_min_rate,
+        'service_fee'     => $service_fee,
       ],
     ];
-  }
-
-  private static function maybe_advance_lead_to_waiting_quote(int $lead_id) : void {
-    $status = (string) get_post_meta($lead_id, SD_Meta::LEAD_STATUS, true);
-    if ($status === SD_Meta::LEAD_CAPTURED) {
-      update_post_meta($lead_id, SD_Meta::LEAD_STATUS, SD_Meta::LEAD_WAITING_QUOTE);
-    }
   }
 
   /**
