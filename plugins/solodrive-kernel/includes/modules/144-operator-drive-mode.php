@@ -2,27 +2,18 @@
 if (!defined('ABSPATH')) { exit; }
 
 /**
- * SD_Module_OperatorDriveMode (lead-root refactor)
+ * SD_Module_OperatorDriveMode
  *
- * Purpose:
- * - Render the private operator Drive Mode surface
- *
- * Notes:
- * - Desktop browsers may support push
- * - iPhone browser tabs may not expose PushManager
- * - This surface includes a foreground live-monitor fallback
- * - Active payload is built by SD_Module_OperatorActiveRide::build()
+ * Drive tab renderer for the unified operator application shell.
  *
  * Canon:
  * - lead is the queue and trip-ops selection root
- * - /trip/<token> resolves to lead
  * - quote/auth/ride hydrate under lead
  * - ride appears only after successful authorization
  *
- * Page routing:
- * - Uses a normal WP page permalink for Drive Mode
- * - Default slug is "operator-trips"
- * - Override with filter: sd_operator_drive_mode_page_slug
+ * Important:
+ * - This module no longer owns page routing
+ * - This module renders Drive tab content only
  */
 
 if (class_exists('SD_Module_OperatorDriveMode', false)) { return; }
@@ -30,36 +21,26 @@ if (class_exists('SD_Module_OperatorDriveMode', false)) { return; }
 final class SD_Module_OperatorDriveMode {
 
   private const QUEUE_LIMIT = 7;
-  private const DEFAULT_PAGE_SLUG = 'operator-trips';
 
-  public static function render_page() : void {
-    status_header(200);
+  public static function register() : void {
+    add_shortcode('sd_operator_drive_mode', [__CLASS__, 'shortcode']);
+  }
 
+  public static function shortcode() : string {
     if (!is_user_logged_in()) {
-      $redirect = self::drive_mode_url();
-
-      if (class_exists('SD_Module_OperatorUI', false) && method_exists('SD_Module_OperatorUI', 'render_login_screen')) {
-        SD_Module_OperatorUI::render_login_screen('Operator Login', $redirect);
-        return;
-      }
-
-      self::render_fallback_login($redirect);
-      return;
+      return '<div class="sd-op-wrap"><div class="sd-op-card"><p>Please log in.</p></div></div>';
     }
 
     $tenant_id = self::current_user_tenant_id();
-
     if ($tenant_id <= 0) {
-      $body = '<div class="sd-op-wrap"><div class="sd-op-card"><h2>SoloDrive</h2><p>Your user is not assigned to a tenant yet.</p></div></div>';
-      self::render_shell('Drive Mode', $body);
-      return;
+      return '<div class="sd-op-wrap"><div class="sd-op-card"><p>No tenant assigned.</p></div></div>';
     }
 
-    if (!self::current_user_can_operator_surface()) {
-      $body = '<div class="sd-op-wrap"><div class="sd-op-card"><h2>Access denied</h2><p>Your account does not have operator access.</p></div></div>';
-      self::render_shell('Drive Mode', $body);
-      return;
-    }
+    return self::render_tab($tenant_id);
+  }
+
+  public static function render_tab(int $tenant_id) : string {
+    $tenant_id = absint($tenant_id);
 
     $operator = class_exists('SD_Module_OperatorLocation', false) && method_exists('SD_Module_OperatorLocation', 'get_operator_context')
       ? SD_Module_OperatorLocation::get_operator_context(get_current_user_id(), $tenant_id)
@@ -81,9 +62,9 @@ final class SD_Module_OperatorDriveMode {
       ? SD_Module_OperatorActiveRide::build($selected_lead_id, $tenant_id)
       : [];
 
-    $active_tab = isset($_GET['tab']) ? sanitize_key((string) $_GET['tab']) : 'queue';
-    if (!in_array($active_tab, ['queue', 'trip-ops'], true)) {
-      $active_tab = 'queue';
+    $active_view = isset($_GET['view']) ? sanitize_key((string) $_GET['view']) : 'queue';
+    if (!in_array($active_view, ['queue', 'trip-ops'], true)) {
+      $active_view = 'queue';
     }
 
     $waiting_quotes_count = 0;
@@ -93,51 +74,53 @@ final class SD_Module_OperatorDriveMode {
       }
     }
 
-    $base_url = self::drive_mode_url();
+    $base_url = self::operator_app_url();
 
-    $html  = '<div class="sd-op-wrap">';
-    $html .= '  <div class="sd-op-head">';
-    $html .= '    <div>';
-    $html .= '      <div class="sd-op-kicker">Drive Mode</div>';
-    $html .= '      <h1>' . esc_html(wp_get_current_user()->display_name ?: 'Operator') . '</h1>';
-    $html .= '      <div class="sd-op-sub">Tenant #' . (int) $tenant_id . '</div>';
-    $html .= '    </div>';
-    $html .= '  </div>';
+    ob_start();
 
-    $html .= '  <div class="sd-op-pwa-actions">';
-    $html .= '    <button type="button" class="sd-op-btn" id="sd-install-pwa-btn">Install app</button>';
-    $html .= '    <button type="button" class="sd-op-btn" id="sd-enable-alerts-btn">Enable alerts</button>';
-    $html .= '    <button type="button" class="sd-op-btn" id="sd-test-alert-btn">Send test alert</button>';
-    $html .= '  </div>';
+    echo '<div class="sd-op-wrap">';
+    echo '  <div class="sd-op-head">';
+    echo '    <div>';
+    echo '      <div class="sd-op-kicker">Drive Mode</div>';
+    echo '      <h1>' . esc_html(wp_get_current_user()->display_name ?: 'Operator') . '</h1>';
+    echo '      <div class="sd-op-sub">Tenant #' . (int) $tenant_id . '</div>';
+    echo '    </div>';
+    echo '  </div>';
 
-    $html .= '  <div class="sd-op-strip">';
-    $html .= '    <span><strong>Live location:</strong> ' . esc_html((string) ($operator['live_location_label'] ?? 'missing')) . '</span>';
-    $html .= '    <span><strong>Base location:</strong> ' . esc_html((string) ($operator['base_location_label'] ?? 'missing')) . '</span>';
-    $html .= '  </div>';
+    echo '  <div class="sd-op-pwa-actions">';
+    echo '    <button type="button" class="sd-op-btn" id="sd-install-pwa-btn">Install app</button>';
+    echo '    <button type="button" class="sd-op-btn" id="sd-enable-alerts-btn">Enable alerts</button>';
+    echo '    <button type="button" class="sd-op-btn" id="sd-test-alert-btn">Send test alert</button>';
+    echo '  </div>';
 
-    $html .= '  <div class="sd-op-strip" style="opacity:.8;font-size:13px">';
-    $html .= '    <span><strong>PWA config:</strong> <span id="sd-debug-pwa-config">checking</span></span>';
-    $html .= '    <span><strong>PWA JS:</strong> <span id="sd-debug-pwa-js">checking</span></span>';
-    $html .= '    <span><strong>Push JS:</strong> <span id="sd-debug-push-js">checking</span></span>';
-    $html .= '    <span><strong>SW:</strong> <span id="sd-debug-sw">checking</span></span>';
-    $html .= '  </div>';
+    echo '  <div class="sd-op-strip">';
+    echo '    <span><strong>Live location:</strong> ' . esc_html((string) ($operator['live_location_label'] ?? 'missing')) . '</span>';
+    echo '    <span><strong>Base location:</strong> ' . esc_html((string) ($operator['base_location_label'] ?? 'missing')) . '</span>';
+    echo '  </div>';
 
-    $html .= '  <div class="sd-op-strip" style="font-size:13px">';
-    $html .= '    <span><strong>Install:</strong> <span id="sd-debug-install-state">checking</span></span>';
-    $html .= '    <span><strong>Alerts:</strong> <span id="sd-debug-push-state">checking</span></span>';
-    $html .= '    <span><strong>Monitor:</strong> <span id="sd-monitor-state">Starting</span></span>';
-    $html .= '  </div>';
+    echo '  <div class="sd-op-strip" style="opacity:.8;font-size:13px">';
+    echo '    <span><strong>PWA config:</strong> <span id="sd-debug-pwa-config">checking</span></span>';
+    echo '    <span><strong>PWA JS:</strong> <span id="sd-debug-pwa-js">checking</span></span>';
+    echo '    <span><strong>Push JS:</strong> <span id="sd-debug-push-js">checking</span></span>';
+    echo '    <span><strong>SW:</strong> <span id="sd-debug-sw">checking</span></span>';
+    echo '  </div>';
 
-    $html .= '  <div class="sd-op-card" id="sd-op-action-card" style="margin-top:12px;padding:14px 16px;">';
-    $html .= '    <strong>Action status:</strong> <span id="sd-op-action-status">Ready.</span>';
-    $html .= '  </div>';
+    echo '  <div class="sd-op-strip" style="font-size:13px">';
+    echo '    <span><strong>Install:</strong> <span id="sd-debug-install-state">checking</span></span>';
+    echo '    <span><strong>Alerts:</strong> <span id="sd-debug-push-state">checking</span></span>';
+    echo '    <span><strong>Monitor:</strong> <span id="sd-monitor-state">Starting</span></span>';
+    echo '  </div>';
 
-    $html .= '  <div class="sd-op-card" id="sd-op-monitor-card" style="margin-top:12px;padding:14px 16px;">';
-    $html .= '    <strong>Live monitor:</strong> <span id="sd-monitor-message">Foreground queue monitoring enabled for this page.</span>';
-    $html .= '  </div>';
+    echo '  <div class="sd-op-card" id="sd-op-action-card" style="margin-top:12px;padding:14px 16px;">';
+    echo '    <strong>Action status:</strong> <span id="sd-op-action-status">Ready.</span>';
+    echo '  </div>';
+
+    echo '  <div class="sd-op-card" id="sd-op-monitor-card" style="margin-top:12px;padding:14px 16px;">';
+    echo '    <strong>Live monitor:</strong> <span id="sd-monitor-message">Foreground queue monitoring enabled for this page.</span>';
+    echo '  </div>';
 
     $queue_btn_classes = 'sd-op-toggle';
-    if ($active_tab === 'queue') {
+    if ($active_view === 'queue') {
       $queue_btn_classes .= ' is-active';
     }
     if ($waiting_quotes_count > 0) {
@@ -145,48 +128,52 @@ final class SD_Module_OperatorDriveMode {
     }
 
     $trip_btn_classes = 'sd-op-toggle';
-    if ($active_tab === 'trip-ops') {
+    if ($active_view === 'trip-ops') {
       $trip_btn_classes .= ' is-active';
     }
 
-    $html .= '  <div class="sd-op-toggles">';
-    $html .= '    <a id="sd-queue-toggle" class="' . esc_attr($queue_btn_classes) . '" href="' . esc_url(add_query_arg(['tab' => 'queue'], $base_url)) . '">';
-    $html .= '      Queue (<span id="sd-queue-count">' . (int) count($queue_items) . '</span>)';
+    echo '  <div class="sd-op-toggles">';
+    echo '    <a id="sd-queue-toggle" class="' . esc_attr($queue_btn_classes) . '" href="' . esc_url(add_query_arg([
+      'tab'  => 'drive',
+      'view' => 'queue',
+    ], $base_url)) . '">';
+    echo '      Queue (<span id="sd-queue-count">' . (int) count($queue_items) . '</span>)';
     if ($waiting_quotes_count > 0) {
-      $html .= ' <span class="sd-op-badge" id="sd-queue-waiting-badge">' . (int) $waiting_quotes_count . ' quote' . ($waiting_quotes_count === 1 ? '' : 's') . '</span>';
+      echo ' <span class="sd-op-badge" id="sd-queue-waiting-badge">' . (int) $waiting_quotes_count . ' quote' . ($waiting_quotes_count === 1 ? '' : 's') . '</span>';
     } else {
-      $html .= ' <span class="sd-op-badge" id="sd-queue-waiting-badge" style="display:none"></span>';
+      echo ' <span class="sd-op-badge" id="sd-queue-waiting-badge" style="display:none"></span>';
     }
-    $html .= '    </a>';
+    echo '    </a>';
 
-    $html .= '    <a class="' . esc_attr($trip_btn_classes) . '" href="' . esc_url(add_query_arg([
-      'tab'     => 'trip-ops',
+    echo '    <a class="' . esc_attr($trip_btn_classes) . '" href="' . esc_url(add_query_arg([
+      'tab'     => 'drive',
+      'view'    => 'trip-ops',
       'lead_id' => $selected_lead_id,
     ], $base_url)) . '">trip-ops</a>';
 
-    $html .= '  </div>';
+    echo '  </div>';
 
-    $html .= '  <div class="sd-op-lower">';
-    if ($active_tab === 'queue') {
-      $html .= '    <div id="sd-op-queue-panel">';
-      $html .=        self::render_queue_panel($queue_items, $selected_lead_id, $base_url);
-      $html .= '    </div>';
+    echo '  <div class="sd-op-lower">';
+    if ($active_view === 'queue') {
+      echo '    <div id="sd-op-queue-panel">';
+      echo         self::render_queue_panel($queue_items, $selected_lead_id, $base_url);
+      echo '    </div>';
     } else {
       if (class_exists('SD_Module_OperatorTripOps', false) && method_exists('SD_Module_OperatorTripOps', 'render_active_ride_panel')) {
-        $html .= SD_Module_OperatorTripOps::render_active_ride_panel($active);
+        echo SD_Module_OperatorTripOps::render_active_ride_panel($active);
       } else {
-        $html .= '<div class="sd-op-card"><p>trip-ops module unavailable.</p></div>';
+        echo '<div class="sd-op-card"><p>trip-ops module unavailable.</p></div>';
       }
     }
-    $html .= '  </div>';
-    $html .= '</div>';
+    echo '  </div>';
+    echo '</div>';
 
-    $html .= self::boot_script($tenant_id, $active_tab, $base_url);
+    echo self::boot_script($tenant_id, $active_view, $base_url);
 
-    self::render_shell('Drive Mode', $html);
+    return (string) ob_get_clean();
   }
 
-  private static function boot_script(int $tenant_id, string $active_tab, string $base_url) : string {
+  private static function boot_script(int $tenant_id, string $active_view, string $base_url) : string {
     $ajax_url = admin_url('admin-ajax.php');
     $nonce    = wp_create_nonce('sd_operator_queue');
 
@@ -194,7 +181,7 @@ final class SD_Module_OperatorDriveMode {
     (function(){
       var CFG = {
         tenantId: ' . (int) $tenant_id . ',
-        activeTab: ' . wp_json_encode($active_tab) . ',
+        activeView: ' . wp_json_encode($active_view) . ',
         ajaxUrl: ' . wp_json_encode($ajax_url) . ',
         nonce: ' . wp_json_encode($nonce) . ',
         queueLimit: ' . (int) self::QUEUE_LIMIT . ',
@@ -331,7 +318,8 @@ final class SD_Module_OperatorDriveMode {
 
       function queueRowHref(leadId) {
         var url = new URL(CFG.baseUrl, window.location.origin);
-        url.searchParams.set("tab", "trip-ops");
+        url.searchParams.set("tab", "drive");
+        url.searchParams.set("view", "trip-ops");
         url.searchParams.set("lead_id", String(leadId || 0));
         return url.toString();
       }
@@ -428,7 +416,7 @@ final class SD_Module_OperatorDriveMode {
 
         updateQueueSummary(count, waitingQuotes);
 
-        if (CFG.activeTab === "queue") {
+        if (CFG.activeView === "queue") {
           renderQueuePanel(snapshot.items || [], snapshot.selected_lead_id || 0);
         }
 
@@ -670,7 +658,8 @@ final class SD_Module_OperatorDriveMode {
       $lead_id = (int) ($item['lead_id'] ?? 0);
 
       $href = add_query_arg([
-        'tab'     => 'trip-ops',
+        'tab'     => 'drive',
+        'view'    => 'trip-ops',
         'lead_id' => $lead_id,
       ], $base_url);
 
@@ -704,14 +693,16 @@ final class SD_Module_OperatorDriveMode {
     return $html;
   }
 
-  private static function drive_mode_url() : string {
-    $slug = (string) apply_filters('sd_operator_drive_mode_page_slug', self::DEFAULT_PAGE_SLUG);
-    $slug = sanitize_title($slug);
-    if ($slug === '') {
-      $slug = self::DEFAULT_PAGE_SLUG;
+  private static function operator_app_url() : string {
+    $post = get_post();
+    if ($post instanceof WP_Post) {
+      $url = get_permalink($post);
+      if (is_string($url) && $url !== '') {
+        return $url;
+      }
     }
 
-    $page = get_page_by_path($slug, OBJECT, 'page');
+    $page = get_page_by_path('operator', OBJECT, 'page');
     if ($page instanceof WP_Post) {
       $url = get_permalink($page);
       if (is_string($url) && $url !== '') {
@@ -719,7 +710,7 @@ final class SD_Module_OperatorDriveMode {
       }
     }
 
-    return home_url('/' . $slug . '/');
+    return home_url('/operator/');
   }
 
   private static function resolve_selected_lead_id_fallback() : int {
@@ -744,56 +735,5 @@ final class SD_Module_OperatorDriveMode {
     if (!is_user_logged_in()) return 0;
 
     return (int) get_user_meta(get_current_user_id(), 'sd_tenant_id', true);
-  }
-
-  private static function current_user_can_operator_surface() : bool {
-    if (current_user_can('manage_options')) return true;
-
-    if (class_exists('SD_Module_RolesCaps', false)) {
-      return current_user_can(SD_Module_RolesCaps::CAP_MANAGE_TENANT)
-        || current_user_can(SD_Module_RolesCaps::CAP_DISPATCH)
-        || current_user_can(SD_Module_RolesCaps::CAP_DRIVER);
-    }
-
-    return is_user_logged_in();
-  }
-
-  private static function render_shell(string $title, string $body_html) : void {
-    if (class_exists('SD_Module_OperatorUI', false) && method_exists('SD_Module_OperatorUI', 'render_shell')) {
-      SD_Module_OperatorUI::render_shell($title, $body_html);
-      return;
-    }
-
-    echo '<!doctype html><html><head>';
-    echo '<meta charset="utf-8">';
-    echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
-    echo '<title>' . esc_html($title) . '</title>';
-    wp_head();
-    echo '</head><body>';
-    echo $body_html;
-    wp_footer();
-    echo '</body></html>';
-  }
-public static function register() : void {
-  add_shortcode('sd_operator_drive_mode', [__CLASS__, 'shortcode']);
-}
-
-public static function shortcode() : string {
-  ob_start();
-  self::render_page();
-  return (string) ob_get_clean();
-}
-  private static function render_fallback_login(string $redirect_url) : void {
-    ob_start();
-    wp_login_form([
-      'echo'           => true,
-      'remember'       => true,
-      'redirect'       => $redirect_url,
-      'label_username' => 'Email or Username',
-      'label_password' => 'Password',
-    ]);
-
-    $body = '<div class="sd-op-wrap"><div class="sd-op-card"><h2>Operator Login</h2>' . ob_get_clean() . '</div></div>';
-    self::render_shell('Operator Login', $body);
   }
 }
