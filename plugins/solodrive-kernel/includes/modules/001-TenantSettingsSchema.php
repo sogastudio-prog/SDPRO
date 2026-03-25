@@ -757,6 +757,40 @@ final class SD_TenantSettingsSchema {
           'default'   => '',
           'max_len'   => 280,
         ],
+
+        // -------------------------------------------------------------------
+        // Mirrored runtime / diagnostics fields
+        // -------------------------------------------------------------------
+        SD_Meta::TENANT_LAST_LOCATION_LAT => [
+          'type'      => 'lat',
+          'required'  => false,
+          'default'   => '',
+          'readonly'  => true,
+          'derived'   => true,
+        ],
+        SD_Meta::TENANT_LAST_LOCATION_LNG => [
+          'type'      => 'lng',
+          'required'  => false,
+          'default'   => '',
+          'readonly'  => true,
+          'derived'   => true,
+        ],
+        SD_Meta::TENANT_LAST_LOCATION_TS => [
+          'type'      => 'int',
+          'required'  => false,
+          'default'   => '',
+          'readonly'  => true,
+          'derived'   => true,
+          'min'       => 1,
+        ],
+        SD_Meta::TENANT_LAST_LOCATION_ACCURACY_M => [
+          'type'      => 'money',
+          'required'  => false,
+          'default'   => '',
+          'readonly'  => true,
+          'derived'   => true,
+          'min'       => 0,
+        ],
       ],
     ];
   }
