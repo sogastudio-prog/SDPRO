@@ -30,6 +30,8 @@ final class SD_Module_OperatorDriveMode {
 
   public static function register() : void {
     add_shortcode('sd_operator_drive_mode', [__CLASS__, 'shortcode']);
+    add_action('wp_ajax_sd_driver_toggle_pause', [__CLASS__, 'ajax_toggle_pause']);
+    add_action('wp_ajax_sd_driver_toggle_third_party', [__CLASS__, 'ajax_toggle_third_party']);
   }
 
   public static function boot_drive_runtime(int $tenant_id = 0) : void {
@@ -168,6 +170,7 @@ final class SD_Module_OperatorDriveMode {
 
     echo '  <div class="sd-op-card" id="sd-op-monitor-card" style="margin-top:12px;padding:14px 16px;">';
     echo '    <strong>Live monitor:</strong> <span id="sd-monitor-message">Foreground queue monitoring enabled for this page.</span>';
+    echo self::render_driver_stack_controls($tenant_id);
     echo '  </div>';
 
     $queue_btn_classes = 'sd-op-toggle';
@@ -342,6 +345,107 @@ final class SD_Module_OperatorDriveMode {
         setText("sd-debug-sw", document.documentElement.getAttribute("data-sd-sw") || "unknown");
         setText("sd-debug-install-state", installLabel(document.documentElement.getAttribute("data-sd-install")));
         setText("sd-debug-push-state", pushLabel(document.documentElement.getAttribute("data-sd-push")));
+      }
+
+      var pauseBtn = document.getElementById("sd-toggle-pause-btn");
+var thirdBtn = document.getElementById("sd-toggle-third-party-btn");
+
+function postDriverMode(actionName, payload) {
+  var body = new URLSearchParams();
+  body.append("action", actionName);
+
+  Object.keys(payload).forEach(function(key){
+    body.append(key, String(payload[key]));
+  });
+
+  return fetch(CFG.ajaxUrl, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
+    },
+    body: body.toString()
+  }).then(function(res){
+    return res.json();
+  });
+}
+
+function withCurrentPosition(fn) {
+  if (!navigator.geolocation) {
+    fn(0, 0);
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    function(pos){
+      var c = pos && pos.coords ? pos.coords : null;
+      fn(c ? c.latitude : 0, c ? c.longitude : 0);
+    },
+    function(){
+      fn(0, 0);
+    },
+    {
+      enableHighAccuracy: true,
+      maximumAge: 10000,
+      timeout: 8000
+    }
+  );
+}
+
+if (pauseBtn) {
+  pauseBtn.addEventListener("click", function(){
+    var nextPaused = pauseBtn.getAttribute("data-paused") === "1" ? 0 : 1;
+    setActionStatus(nextPaused ? "Pausing SoloDrive..." : "Resuming SoloDrive...");
+
+    withCurrentPosition(function(lat, lng){
+      postDriverMode("sd_driver_toggle_pause", {
+        paused: nextPaused,
+        lat: lat,
+        lng: lng
+      })
+      .then(function(json){
+        if (!json || json.success !== true) {
+          throw new Error((json && json.data && json.data.message) ? json.data.message : "Pause update failed.");
+        }
+        window.location.reload();
+      })
+      .catch(function(err){
+        console.error(err);
+        setActionStatus("Pause update failed.");
+      });
+    });
+  });
+}
+
+if (thirdBtn) {
+  thirdBtn.addEventListener("click", function(){
+    var nextActive = thirdBtn.getAttribute("data-active") === "1" ? 0 : 1;
+    var provider = thirdBtn.getAttribute("data-provider") || "unknown";
+    if (!provider || provider === "unknown") {
+      provider = "uber";
+    }
+
+      setActionStatus(nextActive ? "Starting Uber/Lyft mode..." : "Ending Uber/Lyft mode...");
+
+      withCurrentPosition(function(lat, lng){
+      postDriverMode("sd_driver_toggle_third_party", {
+        active: nextActive,
+        provider: provider,
+        lat: lat,
+        lng: lng
+      })
+      .then(function(json){
+        if (!json || json.success !== true) {
+          throw new Error((json && json.data && json.data.message) ? json.data.message : "Third-party update failed.");
+        }
+        window.location.reload();
+          })
+        .catch(function(err){
+          console.error(err);
+          setActionStatus("Third-party update failed.");
+          });
+          });
+        });
       }
 
       function setActionStatus(msg) {
@@ -806,6 +910,67 @@ final class SD_Module_OperatorDriveMode {
     return home_url('/operator/');
   }
 
+  public static function ajax_toggle_pause() : void {
+    if (!is_user_logged_in()) {
+    wp_send_json_error(['message' => 'Authentication required.'], 401);
+    }
+
+    $tenant_id = self::current_user_tenant_id();
+    $driver_id = get_current_user_id();
+
+    if ($tenant_id <= 0 || $driver_id <= 0) {
+    wp_send_json_error(['message' => 'Tenant or driver missing.'], 400);
+    }
+
+    $paused = isset($_POST['paused']) && (string) wp_unslash($_POST['paused']) === '1';
+
+    $lat = isset($_POST['lat']) ? (float) wp_unslash($_POST['lat']) : 0.0;
+    $lng = isset($_POST['lng']) ? (float) wp_unslash($_POST['lng']) : 0.0;
+
+    $ok = class_exists('SD_Module_DriverAvailability', false) && method_exists('SD_Module_DriverAvailability', 'set_pause_state')
+    ? SD_Module_DriverAvailability::set_pause_state($driver_id, $tenant_id, $paused, $lat, $lng, $driver_id)
+    : false;
+
+    if (!$ok) {
+    wp_send_json_error(['message' => 'Pause update failed.'], 500);
+    }
+
+    wp_send_json_success([
+    'paused' => $paused ? 1 : 0,
+    ]);
+  }
+
+  public static function ajax_toggle_third_party() : void {
+  if (!is_user_logged_in()) {
+    wp_send_json_error(['message' => 'Authentication required.'], 401);
+  }
+
+  $tenant_id = self::current_user_tenant_id();
+  $driver_id = get_current_user_id();
+
+  if ($tenant_id <= 0 || $driver_id <= 0) {
+    wp_send_json_error(['message' => 'Tenant or driver missing.'], 400);
+  }
+
+  $active   = isset($_POST['active']) && (string) wp_unslash($_POST['active']) === '1';
+  $provider = isset($_POST['provider']) ? sanitize_text_field((string) wp_unslash($_POST['provider'])) : 'unknown';
+  $lat = isset($_POST['lat']) ? (float) wp_unslash($_POST['lat']) : 0.0;
+  $lng = isset($_POST['lng']) ? (float) wp_unslash($_POST['lng']) : 0.0;
+
+  $ok = class_exists('SD_Module_DriverAvailability', false) && method_exists('SD_Module_DriverAvailability', 'set_third_party_state')
+    ? SD_Module_DriverAvailability::set_third_party_state($driver_id, $tenant_id, $active, $lat, $lng, $provider, $driver_id)
+    : false;
+
+  if (!$ok) {
+    wp_send_json_error(['message' => 'Third-party update failed.'], 500);
+  }
+
+  wp_send_json_success([
+    'active'   => $active ? 1 : 0,
+    'provider' => $provider,
+  ]);
+  }
+
   private static function resolve_selected_lead_id_fallback() : int {
     $lead_id = isset($_GET['lead_id']) ? absint(wp_unslash($_GET['lead_id'])) : 0;
     if ($lead_id > 0) {
@@ -820,7 +985,39 @@ final class SD_Module_OperatorDriveMode {
     return 0;
   }
 
-  private static function current_user_tenant_id() : int {
+  private static function render_driver_stack_controls(int $tenant_id) : string {
+    $driver_id = get_current_user_id();
+    if ($driver_id <= 0) {
+    return '';
+    }
+
+    $is_paused = class_exists('SD_Module_DriverAvailability', false) && method_exists('SD_Module_DriverAvailability', 'is_paused')
+    ? SD_Module_DriverAvailability::is_paused($driver_id)
+    : false;
+
+    $is_third_party = class_exists('SD_Module_DriverAvailability', false) && method_exists('SD_Module_DriverAvailability', 'is_third_party_active')
+    ? SD_Module_DriverAvailability::is_third_party_active($driver_id)
+    : false;
+
+    $provider = class_exists('SD_Module_DriverAvailability', false) && method_exists('SD_Module_DriverAvailability', 'current_provider')
+    ? SD_Module_DriverAvailability::current_provider($driver_id)
+    : 'unknown';
+
+    $html  = '<div class="sd-op-card" style="margin-top:12px;padding:14px 16px;">';
+    $html .= '  <strong>Availability mode:</strong> ';
+    $html .= '  <span style="margin-left:8px;">SoloDrive ' . esc_html($is_paused ? 'Paused' : 'Active') . '</span>';
+    $html .= '  <span style="margin-left:12px;">Third-party ' . esc_html($is_third_party ? ('On (' . $provider . ')') : 'Off') . '</span>';
+    $html .= '  <div class="sd-op-pwa-actions" style="margin-top:10px;">';
+    $html .= '    <button type="button" class="sd-op-btn" id="sd-toggle-pause-btn" data-paused="' . esc_attr($is_paused ? '1' : '0') . '">' . esc_html($is_paused ? 'Resume SoloDrive' : 'Pause SoloDrive') . '</button>';
+    $html .= '    <button type="button" class="sd-op-btn" id="sd-toggle-third-party-btn" data-active="' . esc_attr($is_third_party ? '1' : '0') . '" data-provider="' . esc_attr($provider) . '">' . esc_html($is_third_party ? 'End Uber/Lyft' : 'Uber/Lyft') . '</button>';
+    $html .= '  </div>';
+    $html .= '</div>';
+
+    return $html;
+    }
+
+  
+    private static function current_user_tenant_id() : int {
     if (class_exists('SD_TenantAccess', false) && method_exists('SD_TenantAccess', 'current_user_tenant_id')) {
       return (int) SD_TenantAccess::current_user_tenant_id();
     }
