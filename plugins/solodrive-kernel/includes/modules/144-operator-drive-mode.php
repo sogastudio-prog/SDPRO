@@ -14,6 +14,7 @@ if (!defined('ABSPATH')) { exit; }
  * Important:
  * - This module no longer owns page routing
  * - This module renders Drive tab content only
+ * - Drive-only assets/runtime boot only when ?tab=drive
  */
 
 if (class_exists('SD_Module_OperatorDriveMode', false)) { return; }
@@ -21,9 +22,52 @@ if (class_exists('SD_Module_OperatorDriveMode', false)) { return; }
 final class SD_Module_OperatorDriveMode {
 
   private const QUEUE_LIMIT = 7;
+  private static $drive_runtime_booted = false;
 
   public static function register() : void {
     add_shortcode('sd_operator_drive_mode', [__CLASS__, 'shortcode']);
+  }
+
+  /**
+   * Boot Drive-only runtime dependencies.
+   *
+   * This is intentionally defensive:
+   * - only runs once
+   * - only boots known modules if loaded
+   * - does not fatal if exact module APIs differ
+   */
+  public static function boot_drive_runtime(int $tenant_id = 0) : void {
+    if (self::$drive_runtime_booted) {
+      return;
+    }
+    self::$drive_runtime_booted = true;
+
+    $tenant_id = absint($tenant_id);
+
+    // -----------------------------------------------------------------------
+    // Push / push API / VAPID / PWA
+    // -----------------------------------------------------------------------
+    self::maybe_boot_module('SD_Module_OperatorPushApi');
+    self::maybe_boot_module('SD_Module_OperatorPushKeys');
+    self::maybe_boot_module('SD_Module_OperatorPWA');
+    self::maybe_boot_module('SD_Module_OperatorNotificationService');
+
+    // -----------------------------------------------------------------------
+    // Location runtime
+    // -----------------------------------------------------------------------
+    self::maybe_boot_module('SD_Module_OperatorLocation');
+    self::maybe_boot_module('SD_Module_OperatorLocationResolver');
+
+    // -----------------------------------------------------------------------
+    // Best-effort enqueue / localization hooks for front-end runtime
+    // -----------------------------------------------------------------------
+    add_action('wp_enqueue_scripts', function() use ($tenant_id) {
+      self::maybe_enqueue_module_assets('SD_Module_OperatorPWA', $tenant_id);
+      self::maybe_enqueue_module_assets('SD_Module_OperatorPushApi', $tenant_id);
+      self::maybe_enqueue_module_assets('SD_Module_OperatorPushKeys', $tenant_id);
+      self::maybe_enqueue_module_assets('SD_Module_OperatorLocation', $tenant_id);
+      self::maybe_enqueue_module_assets('SD_Module_OperatorLocationResolver', $tenant_id);
+    }, 20);
   }
 
   public static function shortcode() : string {
@@ -36,11 +80,15 @@ final class SD_Module_OperatorDriveMode {
       return '<div class="sd-op-wrap"><div class="sd-op-card"><p>No tenant assigned.</p></div></div>';
     }
 
+    self::boot_drive_runtime($tenant_id);
+
     return self::render_tab($tenant_id);
   }
 
   public static function render_tab(int $tenant_id) : string {
     $tenant_id = absint($tenant_id);
+
+    self::boot_drive_runtime($tenant_id);
 
     $operator = class_exists('SD_Module_OperatorLocation', false) && method_exists('SD_Module_OperatorLocation', 'get_operator_context')
       ? SD_Module_OperatorLocation::get_operator_context(get_current_user_id(), $tenant_id)
@@ -171,6 +219,49 @@ final class SD_Module_OperatorDriveMode {
     echo self::boot_script($tenant_id, $active_view, $base_url);
 
     return (string) ob_get_clean();
+  }
+
+  private static function maybe_boot_module(string $class_name) : void {
+    if (!class_exists($class_name, false)) {
+      return;
+    }
+
+    if (method_exists($class_name, 'register')) {
+      $class_name::register();
+      return;
+    }
+
+    if (method_exists($class_name, 'boot')) {
+      $class_name::boot();
+      return;
+    }
+
+    if (method_exists($class_name, 'init')) {
+      $class_name::init();
+      return;
+    }
+  }
+
+  private static function maybe_enqueue_module_assets(string $class_name, int $tenant_id = 0) : void {
+    if (!class_exists($class_name, false)) {
+      return;
+    }
+
+    foreach (['enqueue_assets', 'enqueue', 'enqueue_frontend', 'maybe_enqueue_assets', 'maybe_enqueue_frontend'] as $method) {
+      if (!method_exists($class_name, $method)) {
+        continue;
+      }
+
+      $ref = new ReflectionMethod($class_name, $method);
+      $argc = $ref->getNumberOfParameters();
+
+      if ($argc >= 1) {
+        $class_name::$method($tenant_id);
+      } else {
+        $class_name::$method();
+      }
+      return;
+    }
   }
 
   private static function boot_script(int $tenant_id, string $active_view, string $base_url) : string {

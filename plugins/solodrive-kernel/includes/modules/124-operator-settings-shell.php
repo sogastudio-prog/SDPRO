@@ -75,11 +75,15 @@ final class SD_Module_OperatorSettingsShell {
     }
 
     $tenant_name = get_the_title($tenant_id);
-    $tab         = self::current_tab();
+$tab         = self::current_tab();
 
-    $readiness   = class_exists('SD_TenantReadiness', false)
-      ? SD_TenantReadiness::evaluate($tenant_id)
-      : ['is_ready' => false, 'missing' => [], 'warnings' => [], 'missing_items' => []];
+if ($tab === 'drive' && class_exists('SD_Module_OperatorDriveMode', false) && method_exists('SD_Module_OperatorDriveMode', 'boot_drive_runtime')) {
+  SD_Module_OperatorDriveMode::boot_drive_runtime($tenant_id);
+}
+
+$readiness   = class_exists('SD_TenantReadiness', false)
+  ? SD_TenantReadiness::evaluate($tenant_id)
+  : ['is_ready' => false, 'missing' => [], 'warnings' => [], 'missing_items' => []];
 
     $storefront  = class_exists('SD_TenantConfig', false)
       ? SD_TenantConfig::storefront($tenant_id)
