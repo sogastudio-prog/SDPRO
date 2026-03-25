@@ -495,4 +495,13 @@ public const TS_END_LNG      = 'sd_ts_end_lng';
 public const TS_DRIVER_ID    = 'sd_ts_driver_id';
 public const TS_LEAD_ID      = 'sd_ts_lead_id';
 public const TS_RIDE_ID      = 'sd_ts_ride_id';
+
+public const TS_TRUTH_CLASS  = 'sd_ts_truth_class';
+public const TS_SUBJECT_TYPE = 'sd_ts_subject_type';
+public const TS_SUBJECT_ID   = 'sd_ts_subject_id';
+public const TS_ACTOR_TYPE   = 'sd_ts_actor_type';
+public const TS_ACTOR_ID     = 'sd_ts_actor_id';
+public const TS_PAYLOAD_JSON = 'sd_ts_payload_json';
+public const TS_QUOTE_ID     = 'sd_ts_quote_id';
+public const TS_ATTEMPT_ID   = 'sd_ts_attempt_id';
 }
