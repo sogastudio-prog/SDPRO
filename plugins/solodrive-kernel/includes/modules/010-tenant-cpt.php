@@ -138,7 +138,11 @@ final class SD_Module_TenantCPT {
       ? (string) SD_TenantConfig::get_value($tenant_id, SD_Meta::BASE_LOCATION_LABEL, '')
       : (string) get_post_meta($tenant_id, SD_Meta::BASE_LOCATION_LABEL, true);
 
-    $readiness = class_exists('SD_TenantReadiness', false)
+      echo '<div><strong>Last known location</strong><br>' . esc_html(self::format_last_known_location($post->ID)) . '</div>';
+      echo '<div><strong>Last ping</strong><br>' . esc_html(self::format_last_ping($post->ID)) . '</div>';
+      echo '<div><strong>Accuracy</strong><br>' . esc_html(self::format_last_accuracy($post->ID)) . '</div>';
+    
+      $readiness = class_exists('SD_TenantReadiness', false)
       ? SD_TenantReadiness::evaluate($tenant_id)
       : [
           'is_ready' => false,
@@ -225,6 +229,37 @@ final class SD_Module_TenantCPT {
     ];
 
     return $labels[$meta_key] ?? $meta_key;
+  }
+
+  private static function format_last_known_location(int $tenant_id) : string {
+  $lat = (float) get_post_meta($tenant_id, SD_Meta::TENANT_LAST_LOCATION_LAT, true);
+  $lng = (float) get_post_meta($tenant_id, SD_Meta::TENANT_LAST_LOCATION_LNG, true);
+
+  if (abs($lat) < 0.0001 || abs($lng) < 0.0001) {
+    return '—';
+  }
+
+  return number_format($lat, 5) . ', ' . number_format($lng, 5);
+  }
+
+private static function format_last_ping(int $tenant_id) : string {
+  $ts = (int) get_post_meta($tenant_id, SD_Meta::TENANT_LAST_LOCATION_TS, true);
+
+  if ($ts <= 0) {
+    return '—';
+  }
+
+  return human_time_diff($ts, time()) . ' ago';
+  }
+
+private static function format_last_accuracy(int $tenant_id) : string {
+  $acc = (float) get_post_meta($tenant_id, SD_Meta::TENANT_LAST_LOCATION_ACCURACY_M, true);
+
+  if ($acc <= 0) {
+    return '—';
+  }
+
+  return number_format($acc, 1) . ' m';
   }
 }
 
