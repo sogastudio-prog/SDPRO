@@ -15,6 +15,10 @@ if (!defined('ABSPATH')) { exit; }
  * - This module no longer owns page routing
  * - This module renders Drive tab content only
  * - Drive-only assets/runtime boot only when ?tab=drive
+ *
+ * Fixes included:
+ * - Uses SD_Module_OperatorLocation::get_context() instead of nonexistent get_operator_context()
+ * - Renders location controls so live location can actually be refreshed
  */
 
 if (class_exists('SD_Module_OperatorDriveMode', false)) { return; }
@@ -28,14 +32,6 @@ final class SD_Module_OperatorDriveMode {
     add_shortcode('sd_operator_drive_mode', [__CLASS__, 'shortcode']);
   }
 
-  /**
-   * Boot Drive-only runtime dependencies.
-   *
-   * This is intentionally defensive:
-   * - only runs once
-   * - only boots known modules if loaded
-   * - does not fatal if exact module APIs differ
-   */
   public static function boot_drive_runtime(int $tenant_id = 0) : void {
     if (self::$drive_runtime_booted) {
       return;
@@ -44,23 +40,13 @@ final class SD_Module_OperatorDriveMode {
 
     $tenant_id = absint($tenant_id);
 
-    // -----------------------------------------------------------------------
-    // Push / push API / VAPID / PWA
-    // -----------------------------------------------------------------------
     self::maybe_boot_module('SD_Module_OperatorPushApi');
     self::maybe_boot_module('SD_Module_OperatorPushKeys');
     self::maybe_boot_module('SD_Module_OperatorPWA');
     self::maybe_boot_module('SD_Module_OperatorNotificationService');
-
-    // -----------------------------------------------------------------------
-    // Location runtime
-    // -----------------------------------------------------------------------
     self::maybe_boot_module('SD_Module_OperatorLocation');
     self::maybe_boot_module('SD_Module_OperatorLocationResolver');
 
-    // -----------------------------------------------------------------------
-    // Best-effort enqueue / localization hooks for front-end runtime
-    // -----------------------------------------------------------------------
     add_action('wp_enqueue_scripts', function() use ($tenant_id) {
       self::maybe_enqueue_module_assets('SD_Module_OperatorPWA', $tenant_id);
       self::maybe_enqueue_module_assets('SD_Module_OperatorPushApi', $tenant_id);
@@ -90,12 +76,17 @@ final class SD_Module_OperatorDriveMode {
 
     self::boot_drive_runtime($tenant_id);
 
-    $operator = class_exists('SD_Module_OperatorLocation', false) && method_exists('SD_Module_OperatorLocation', 'get_operator_context')
-      ? SD_Module_OperatorLocation::get_operator_context(get_current_user_id(), $tenant_id)
+    // FIX: use get_context() from 142-operator-location.php
+    $operator = class_exists('SD_Module_OperatorLocation', false) && method_exists('SD_Module_OperatorLocation', 'get_context')
+      ? SD_Module_OperatorLocation::get_context(get_current_user_id())
       : [
           'status'              => 'offline',
+          'status_label'        => 'OFFLINE',
           'live_location_label' => 'missing',
           'base_location_label' => 'missing',
+          'last_lat'            => 0.0,
+          'last_lng'            => 0.0,
+          'last_ts'             => 0,
         ];
 
     $queue_items = class_exists('SD_Module_OperatorQueue', false) && method_exists('SD_Module_OperatorQueue', 'get_queue')
@@ -139,6 +130,18 @@ final class SD_Module_OperatorDriveMode {
     echo '    <button type="button" class="sd-op-btn" id="sd-install-pwa-btn">Install app</button>';
     echo '    <button type="button" class="sd-op-btn" id="sd-enable-alerts-btn">Enable alerts</button>';
     echo '    <button type="button" class="sd-op-btn" id="sd-test-alert-btn">Send test alert</button>';
+
+    // FIX: render location controls so live location can be refreshed
+    if (class_exists('SD_Module_OperatorLocation', false) && method_exists('SD_Module_OperatorLocation', 'render_update_location_button')) {
+      echo SD_Module_OperatorLocation::render_update_location_button([
+        'label' => 'Update location',
+      ]);
+    }
+
+    if (class_exists('SD_Module_OperatorLocation', false) && method_exists('SD_Module_OperatorLocation', 'render_status_toggle_button')) {
+      echo SD_Module_OperatorLocation::render_status_toggle_button();
+    }
+
     echo '  </div>';
 
     echo '  <div class="sd-op-strip">';
@@ -198,7 +201,6 @@ final class SD_Module_OperatorDriveMode {
       'view'    => 'trip-ops',
       'lead_id' => $selected_lead_id,
     ], $base_url)) . '">trip-ops</a>';
-
     echo '  </div>';
 
     echo '  <div class="sd-op-lower">';
