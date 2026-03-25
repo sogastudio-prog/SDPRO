@@ -7,6 +7,11 @@ if (!defined('ABSPATH')) { exit; }
  * - Availability is evaluated after lead creation.
  * - Timeblocks are held against lead, not ride.
  * - No quote should be created until lead has feasible held capacity.
+ *
+ * Transitional note:
+ * - This still uses timeblocks for now.
+ * - Ledger writes are added so we can preserve time-space truth
+ *   while the scheduling model evolves.
  */
 final class SD_Module_TimeblockService {
 
@@ -17,16 +22,16 @@ final class SD_Module_TimeblockService {
     add_action('sd_lead_created', [__CLASS__, 'handle_lead_created'], 20, 3);
   }
 
- // public static function handle_lead_created(int $lead_id, int $tenant_id, array $ctx = []) : void {
- //   $lead_id   = absint($lead_id);
-  //  $tenant_id = absint($tenant_id);
-//
-//    if ($lead_id <= 0 || $tenant_id <= 0) {
-//      return;
-//    }
-//
-//    self::evaluate_lead($lead_id, $tenant_id);
-//  }
+  public static function handle_lead_created(int $lead_id, int $tenant_id, array $ctx = []) : void {
+    $lead_id   = absint($lead_id);
+    $tenant_id = absint($tenant_id);
+
+    if ($lead_id <= 0 || $tenant_id <= 0) {
+      return;
+    }
+
+    self::evaluate_lead($lead_id, $tenant_id);
+  }
 
   public static function evaluate_lead(int $lead_id, int $tenant_id = 0) : array {
     $lead_id = absint($lead_id);
@@ -48,6 +53,7 @@ final class SD_Module_TimeblockService {
     $window = self::requested_window_for_lead($lead_id);
     if ($window['start_ts'] <= 0 || $window['end_ts'] <= $window['start_ts']) {
       self::mark_unavailable($lead_id, 'invalid_window');
+      self::write_unavailable_ledger_event($lead_id, $tenant_id, 'invalid_window');
       return ['ok' => false, 'error' => 'invalid_window'];
     }
 
@@ -60,6 +66,7 @@ final class SD_Module_TimeblockService {
 
     if (empty($block_ids)) {
       self::mark_unavailable($lead_id, 'no_open_blocks');
+      self::write_unavailable_ledger_event($lead_id, $tenant_id, 'no_open_blocks');
       return ['ok' => false, 'error' => 'no_open_blocks'];
     }
 
@@ -83,6 +90,7 @@ final class SD_Module_TimeblockService {
 
     if (empty($held_ids)) {
       self::mark_unavailable($lead_id, 'no_covering_block');
+      self::write_unavailable_ledger_event($lead_id, $tenant_id, 'no_covering_block');
       return ['ok' => false, 'error' => 'no_covering_block'];
     }
 
@@ -92,16 +100,18 @@ final class SD_Module_TimeblockService {
     update_post_meta($lead_id, SD_Meta::LEAD_STATUS, 'LEAD_AVAILABLE');
     update_post_meta($lead_id, SD_Meta::P_STATE_UPDATED_AT, time());
 
+    self::write_projection_ledger_events($lead_id, $tenant_id, $window, $held_ids);
+
     do_action('sd_lead_available', $lead_id, $tenant_id, [
       'block_ids' => $held_ids,
       'window'    => $window,
     ]);
 
     return [
-      'ok'       => true,
-      'lead_id'  => $lead_id,
-      'block_ids'=> $held_ids,
-      'window'   => $window,
+      'ok'        => true,
+      'lead_id'   => $lead_id,
+      'block_ids' => $held_ids,
+      'window'    => $window,
     ];
   }
 
@@ -170,7 +180,7 @@ final class SD_Module_TimeblockService {
       'start_ts'         => $start_ts,
       'end_ts'           => $end_ts,
       'duration_minutes' => $duration_minutes,
-      'mode'             => ($mode === 'RESERVE' ? 'RESERVE' : 'ASAP'),
+      'mode'             => ($mode === SD_Meta::LEAD_MODE_RESERVE ? 'RESERVE' : 'ASAP'),
     ];
   }
 
@@ -191,5 +201,74 @@ final class SD_Module_TimeblockService {
     update_post_meta($lead_id, SD_Meta::LEAD_STATUS, 'LEAD_UNAVAILABLE');
     update_post_meta($lead_id, SD_Meta::P_STATE_UPDATED_AT, time());
     update_post_meta($lead_id, SD_Meta::P_AVAILABILITY_REASON, sanitize_key($reason));
+  }
+
+  private static function write_projection_ledger_events(int $lead_id, int $tenant_id, array $window, array $held_ids) : void {
+    if (!class_exists('SD_Module_TimeSpaceLedger') || !class_exists('SD_TimeSpace_EventType')) {
+      return;
+    }
+
+    $pickup_lat = (float) get_post_meta($lead_id, SD_Meta::PICKUP_LAT, true);
+    $pickup_lng = (float) get_post_meta($lead_id, SD_Meta::PICKUP_LNG, true);
+    $dropoff_lat = (float) get_post_meta($lead_id, SD_Meta::DROPOFF_LAT, true);
+    $dropoff_lng = (float) get_post_meta($lead_id, SD_Meta::DROPOFF_LNG, true);
+
+    // Lead projected
+    SD_Module_TimeSpaceLedger::write([
+      'tenant_id'  => $tenant_id,
+      'lead_id'    => $lead_id,
+      'event_type' => SD_TimeSpace_EventType::LEAD_PROJECTED,
+      'start_ts'   => time(),
+      'end_ts'     => (int) ($window['end_ts'] ?? 0),
+      'start_lat'  => $pickup_lat,
+      'start_lng'  => $pickup_lng,
+      'end_lat'    => $dropoff_lat,
+      'end_lng'    => $dropoff_lng,
+    ]);
+
+    // Lead available
+    SD_Module_TimeSpaceLedger::write([
+      'tenant_id'  => $tenant_id,
+      'lead_id'    => $lead_id,
+      'event_type' => SD_TimeSpace_EventType::LEAD_AVAILABLE,
+      'start_ts'   => time(),
+      'start_lat'  => $pickup_lat,
+      'start_lng'  => $pickup_lng,
+    ]);
+
+    if (class_exists('SD_Util')) {
+      SD_Util::log('lead_projection_ledger_written', [
+        'lead_id'   => $lead_id,
+        'tenant_id' => $tenant_id,
+        'held_ids'  => array_values(array_map('intval', $held_ids)),
+        'window'    => $window,
+      ]);
+    }
+  }
+
+  private static function write_unavailable_ledger_event(int $lead_id, int $tenant_id, string $reason) : void {
+    if (!class_exists('SD_Module_TimeSpaceLedger') || !class_exists('SD_TimeSpace_EventType')) {
+      return;
+    }
+
+    $pickup_lat = (float) get_post_meta($lead_id, SD_Meta::PICKUP_LAT, true);
+    $pickup_lng = (float) get_post_meta($lead_id, SD_Meta::PICKUP_LNG, true);
+
+    SD_Module_TimeSpaceLedger::write([
+      'tenant_id'  => $tenant_id,
+      'lead_id'    => $lead_id,
+      'event_type' => SD_TimeSpace_EventType::LEAD_PROJECTED,
+      'start_ts'   => time(),
+      'start_lat'  => $pickup_lat,
+      'start_lng'  => $pickup_lng,
+    ]);
+
+    if (class_exists('SD_Util')) {
+      SD_Util::log('lead_unavailable_ledger_written', [
+        'lead_id'   => $lead_id,
+        'tenant_id' => $tenant_id,
+        'reason'    => $reason,
+      ]);
+    }
   }
 }
