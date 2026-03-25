@@ -2,768 +2,401 @@
 if (!defined('ABSPATH')) { exit; }
 
 /**
- * SD_Module_OperatorDriveMode (lead-root refactor)
+ * SD_Module_OperatorSettingsShell
+ *
+ * Front-end tenant/operator settings shell for operator settings.
  *
  * Purpose:
- * - Render the private operator Drive Mode surface
+ * - Provide a clean tenant-facing settings dashboard outside wp-admin
+ * - Resolve the current operator's tenant from user meta
+ * - Render dashboard cards and section editors
+ *
+ * Entry points:
+ * - Direct route render via render_page()
+ * - Shortcode: [sd_operator_settings]
  *
  * Notes:
- * - Desktop browsers may support push
- * - iPhone browser tabs may not expose PushManager
- * - This surface includes a foreground live-monitor fallback
- * - Active payload is built by SD_Module_OperatorActiveRide::build()
- *
- * Canon:
- * - lead is the queue and trip-ops selection root
- * - /trip/<token> resolves to lead
- * - quote/auth/ride hydrate under lead
- * - ride appears only after successful authorization
- *
- * Page routing:
- * - Uses a normal WP page permalink for Drive Mode
- * - Default slug is "operator-trips"
- * - Override with filter: sd_operator_drive_mode_page_slug
+ * - Supports shortcode-rendered WP pages when custom rewrites are unavailable
+ * - Logged-out shortcode rendering now returns the actual login screen markup
+ * - Base URLs resolve to the current page permalink when using shortcode pages
  */
+if (class_exists('SD_Module_OperatorSettingsShell', false)) { return; }
 
-if (class_exists('SD_Module_OperatorDriveMode', false)) { return; }
+final class SD_Module_OperatorSettingsShell {
 
-final class SD_Module_OperatorDriveMode {
-
-  private const QUEUE_LIMIT = 7;
-  private const DEFAULT_PAGE_SLUG = 'operator-trips';
+  public static function register() : void {
+    add_shortcode('sd_operator_settings', [__CLASS__, 'shortcode']);
+  }
 
   public static function render_page() : void {
     status_header(200);
 
     if (!is_user_logged_in()) {
-      $redirect = self::drive_mode_url();
-
       if (class_exists('SD_Module_OperatorUI', false) && method_exists('SD_Module_OperatorUI', 'render_login_screen')) {
-        SD_Module_OperatorUI::render_login_screen('Operator Login', $redirect);
+        SD_Module_OperatorUI::render_login_screen(
+          'Operator Login',
+          self::current_request_path(),
+          'Operator Login',
+          'Sign in to access your tenant settings.'
+        );
         return;
       }
 
-      self::render_fallback_login($redirect);
+      self::render_shell_fallback('Operator Login', self::fallback_login_card(self::current_request_url()));
       return;
     }
 
-    $tenant_id = self::current_user_tenant_id();
+    $html = self::shortcode();
+
+    if (class_exists('SD_Module_OperatorUI', false) && method_exists('SD_Module_OperatorUI', 'render_shell')) {
+      SD_Module_OperatorUI::render_shell('Operator', $html);
+      return;
+    }
+
+    self::render_shell_fallback('Operator', $html);
+  }
+
+  public static function shortcode($atts = []) : string {
+    if (!is_user_logged_in()) {
+      return self::render_login_fragment();
+    }
+
+    $user_id   = get_current_user_id();
+    $tenant_id = self::current_tenant_id_for_user($user_id);
 
     if ($tenant_id <= 0) {
-      $body = '<div class="sd-op-wrap"><div class="sd-op-card"><h2>SoloDrive</h2><p>Your user is not assigned to a tenant yet.</p></div></div>';
-      self::render_shell('Drive Mode', $body);
-      return;
+      return self::notice_card('No tenant is assigned to your account.');
     }
 
-    if (!self::current_user_can_operator_surface()) {
-      $body = '<div class="sd-op-wrap"><div class="sd-op-card"><h2>Access denied</h2><p>Your account does not have operator access.</p></div></div>';
-      self::render_shell('Drive Mode', $body);
-      return;
+    if (get_post_type($tenant_id) !== 'sd_tenant') {
+      return self::notice_card('Assigned tenant record could not be found.');
     }
 
-    $operator = class_exists('SD_Module_OperatorLocation', false) && method_exists('SD_Module_OperatorLocation', 'get_operator_context')
-      ? SD_Module_OperatorLocation::get_operator_context(get_current_user_id(), $tenant_id)
-      : [
-          'status'              => 'offline',
-          'live_location_label' => 'missing',
-          'base_location_label' => 'missing',
-        ];
+    $tenant_name = get_the_title($tenant_id);
+    $section     = self::current_section();
+    $readiness   = class_exists('SD_TenantReadiness', false)
+      ? SD_TenantReadiness::evaluate($tenant_id)
+      : ['is_ready' => false, 'missing' => [], 'warnings' => [], 'missing_items' => []];
 
-    $queue_items = class_exists('SD_Module_OperatorQueue', false) && method_exists('SD_Module_OperatorQueue', 'get_queue')
-      ? SD_Module_OperatorQueue::get_queue($tenant_id, self::QUEUE_LIMIT)
+    $storefront  = class_exists('SD_TenantConfig', false)
+      ? SD_TenantConfig::storefront($tenant_id)
       : [];
 
-    $selected_lead_id = class_exists('SD_Module_OperatorQueue', false) && method_exists('SD_Module_OperatorQueue', 'resolve_selected_lead_id')
-      ? SD_Module_OperatorQueue::resolve_selected_lead_id($queue_items)
-      : self::resolve_selected_lead_id_fallback();
+    $store_state = isset($storefront[SD_Meta::STOREFRONT_STATE])
+      ? (string) $storefront[SD_Meta::STOREFRONT_STATE]
+      : 'open';
 
-    $active = class_exists('SD_Module_OperatorActiveRide', false) && method_exists('SD_Module_OperatorActiveRide', 'build')
-      ? SD_Module_OperatorActiveRide::build($selected_lead_id, $tenant_id)
-      : [];
+    ob_start();
 
-    $active_tab = isset($_GET['tab']) ? sanitize_key((string) $_GET['tab']) : 'queue';
-    if (!in_array($active_tab, ['queue', 'trip-ops'], true)) {
-      $active_tab = 'queue';
-    }
+    echo '<div class="sd-surface sd-surface--wide sd-operator-settings tenant-operator-settings">';
+      self::render_styles();
+      self::render_header($tenant_id, $tenant_name, $store_state, $readiness, $section);
 
-    $waiting_quotes_count = 0;
-    foreach ($queue_items as $item) {
-      if ((string) ($item['bucket'] ?? '') === 'quotes_waiting') {
-        $waiting_quotes_count++;
-      }
-    }
-
-    $base_url = self::drive_mode_url();
-
-    $html  = '<div class="sd-op-wrap">';
-    $html .= '  <div class="sd-op-head">';
-    $html .= '    <div>';
-    $html .= '      <div class="sd-op-kicker">Drive Mode</div>';
-    $html .= '      <h1>' . esc_html(wp_get_current_user()->display_name ?: 'Operator') . '</h1>';
-    $html .= '      <div class="sd-op-sub">Tenant #' . (int) $tenant_id . '</div>';
-    $html .= '    </div>';
-    $html .= '  </div>';
-
-    $html .= '  <div class="sd-op-pwa-actions">';
-    $html .= '    <button type="button" class="sd-op-btn" id="sd-install-pwa-btn">Install app</button>';
-    $html .= '    <button type="button" class="sd-op-btn" id="sd-enable-alerts-btn">Enable alerts</button>';
-    $html .= '    <button type="button" class="sd-op-btn" id="sd-test-alert-btn">Send test alert</button>';
-    $html .= '  </div>';
-
-    $html .= '  <div class="sd-op-strip">';
-    $html .= '    <span><strong>Live location:</strong> ' . esc_html((string) ($operator['live_location_label'] ?? 'missing')) . '</span>';
-    $html .= '    <span><strong>Base location:</strong> ' . esc_html((string) ($operator['base_location_label'] ?? 'missing')) . '</span>';
-    $html .= '  </div>';
-
-    $html .= '  <div class="sd-op-strip" style="opacity:.8;font-size:13px">';
-    $html .= '    <span><strong>PWA config:</strong> <span id="sd-debug-pwa-config">checking</span></span>';
-    $html .= '    <span><strong>PWA JS:</strong> <span id="sd-debug-pwa-js">checking</span></span>';
-    $html .= '    <span><strong>Push JS:</strong> <span id="sd-debug-push-js">checking</span></span>';
-    $html .= '    <span><strong>SW:</strong> <span id="sd-debug-sw">checking</span></span>';
-    $html .= '  </div>';
-
-    $html .= '  <div class="sd-op-strip" style="font-size:13px">';
-    $html .= '    <span><strong>Install:</strong> <span id="sd-debug-install-state">checking</span></span>';
-    $html .= '    <span><strong>Alerts:</strong> <span id="sd-debug-push-state">checking</span></span>';
-    $html .= '    <span><strong>Monitor:</strong> <span id="sd-monitor-state">Starting</span></span>';
-    $html .= '  </div>';
-
-    $html .= '  <div class="sd-op-card" id="sd-op-action-card" style="margin-top:12px;padding:14px 16px;">';
-    $html .= '    <strong>Action status:</strong> <span id="sd-op-action-status">Ready.</span>';
-    $html .= '  </div>';
-
-    $html .= '  <div class="sd-op-card" id="sd-op-monitor-card" style="margin-top:12px;padding:14px 16px;">';
-    $html .= '    <strong>Live monitor:</strong> <span id="sd-monitor-message">Foreground queue monitoring enabled for this page.</span>';
-    $html .= '  </div>';
-
-    $queue_btn_classes = 'sd-op-toggle';
-    if ($active_tab === 'queue') {
-      $queue_btn_classes .= ' is-active';
-    }
-    if ($waiting_quotes_count > 0) {
-      $queue_btn_classes .= ' is-alert';
-    }
-
-    $trip_btn_classes = 'sd-op-toggle';
-    if ($active_tab === 'trip-ops') {
-      $trip_btn_classes .= ' is-active';
-    }
-
-    $html .= '  <div class="sd-op-toggles">';
-    $html .= '    <a id="sd-queue-toggle" class="' . esc_attr($queue_btn_classes) . '" href="' . esc_url(add_query_arg(['tab' => 'queue'], $base_url)) . '">';
-    $html .= '      Queue (<span id="sd-queue-count">' . (int) count($queue_items) . '</span>)';
-    if ($waiting_quotes_count > 0) {
-      $html .= ' <span class="sd-op-badge" id="sd-queue-waiting-badge">' . (int) $waiting_quotes_count . ' quote' . ($waiting_quotes_count === 1 ? '' : 's') . '</span>';
-    } else {
-      $html .= ' <span class="sd-op-badge" id="sd-queue-waiting-badge" style="display:none"></span>';
-    }
-    $html .= '    </a>';
-
-    $html .= '    <a class="' . esc_attr($trip_btn_classes) . '" href="' . esc_url(add_query_arg([
-      'tab'     => 'trip-ops',
-      'lead_id' => $selected_lead_id,
-    ], $base_url)) . '">trip-ops</a>';
-
-    $html .= '  </div>';
-
-    $html .= '  <div class="sd-op-lower">';
-    if ($active_tab === 'queue') {
-      $html .= '    <div id="sd-op-queue-panel">';
-      $html .=        self::render_queue_panel($queue_items, $selected_lead_id, $base_url);
-      $html .= '    </div>';
-    } else {
-      if (class_exists('SD_Module_OperatorTripOps', false) && method_exists('SD_Module_OperatorTripOps', 'render_active_ride_panel')) {
-        $html .= SD_Module_OperatorTripOps::render_active_ride_panel($active);
+      if ($section === '') {
+        self::render_dashboard($tenant_id);
       } else {
-        $html .= '<div class="sd-op-card"><p>trip-ops module unavailable.</p></div>';
-      }
-    }
-    $html .= '  </div>';
-    $html .= '</div>';
-
-    $html .= self::boot_script($tenant_id, $active_tab, $base_url);
-
-    self::render_shell('Drive Mode', $html);
-  }
-
-  private static function boot_script(int $tenant_id, string $active_tab, string $base_url) : string {
-    $ajax_url = admin_url('admin-ajax.php');
-    $nonce    = wp_create_nonce('sd_operator_queue');
-
-    return '<script>
-    (function(){
-      var CFG = {
-        tenantId: ' . (int) $tenant_id . ',
-        activeTab: ' . wp_json_encode($active_tab) . ',
-        ajaxUrl: ' . wp_json_encode($ajax_url) . ',
-        nonce: ' . wp_json_encode($nonce) . ',
-        queueLimit: ' . (int) self::QUEUE_LIMIT . ',
-        baseUrl: ' . wp_json_encode($base_url) . ',
-        pollMsVisible: 8000,
-        pollMsHidden: 20000
-      };
-
-      var state = {
-        lastSignature: "",
-        lastCount: null,
-        lastWaitingQuotes: null,
-        alertSoundUnlocked: false,
-        pollTimer: null,
-        firstSnapshotSeen: false
-      };
-
-      function setText(id, txt) {
-        var el = document.getElementById(id);
-        if (el) el.textContent = txt;
-      }
-
-      function escapeHtml(s) {
-        return String(s == null ? "" : s)
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;")
-          .replace(/\'/g, "&#039;");
-      }
-
-      function installLabel(stateName) {
-        switch (stateName) {
-          case "available": return "Install available";
-          case "installed": return "Installed";
-          case "accepted": return "Accepted";
-          case "browser": return "Browser tab";
-          default: return stateName || "unknown";
-        }
-      }
-
-      function pushLabel(stateName) {
-        switch (stateName) {
-          case "subscribed": return "Subscribed";
-          case "idle": return "Idle";
-          case "denied": return "Blocked";
-          case "missing-vapid": return "Missing VAPID";
-          case "granted-no-subscription": return "Granted, not subscribed";
-          case "no-service-worker": return "No service worker";
-          case "no-push-manager": return "No PushManager";
-          case "no-notification-api": return "No Notification API";
-          case "permission-not-granted": return "Permission not granted";
-          case "requires-user-gesture": return "Needs tap";
-          case "server-save-failed": return "Server save failed";
-          case "subscribe-failed": return "Subscribe failed";
-          case "sw-not-ready": return "SW not ready";
-          default: return stateName || "unknown";
-        }
-      }
-
-      function refreshDebug() {
-        setText("sd-debug-pwa-config", window.__sdOperatorPwaLocalized ? "present" : "missing");
-        setText("sd-debug-pwa-js", window.SDOperatorPWA ? "loaded" : "missing");
-        setText("sd-debug-push-js", window.SDOperatorPush ? "loaded" : "missing");
-        setText("sd-debug-sw", document.documentElement.getAttribute("data-sd-sw") || "unknown");
-        setText("sd-debug-install-state", installLabel(document.documentElement.getAttribute("data-sd-install")));
-        setText("sd-debug-push-state", pushLabel(document.documentElement.getAttribute("data-sd-push")));
-      }
-
-      function setActionStatus(msg) {
-        setText("sd-op-action-status", msg || "Ready.");
-      }
-
-      function setMonitorState(msg) {
-        setText("sd-monitor-state", msg || "Ready");
-      }
-
-      function setMonitorMessage(msg) {
-        setText("sd-monitor-message", msg || "Foreground queue monitoring enabled for this page.");
-      }
-
-      function maybeUnlockAudio() {
-        state.alertSoundUnlocked = true;
-      }
-
-      function pulseAlertUI(on) {
-        var card = document.getElementById("sd-op-action-card");
-        var toggle = document.getElementById("sd-queue-toggle");
-
-        if (card) {
-          card.style.borderColor = on ? "#fecaca" : "";
-          card.style.background = on ? "#fef2f2" : "";
-        }
-
-        if (toggle) {
-          if (on) toggle.classList.add("is-alert");
-          else toggle.classList.remove("is-alert");
-        }
-      }
-
-      function tryVibrate() {
-        if (navigator.vibrate) {
-          navigator.vibrate([160, 100, 160]);
-        }
-      }
-
-      function tryBeep() {
-        if (!state.alertSoundUnlocked) return;
-
-        var AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return;
-
-        try {
-          var ctx = new AC();
-          var osc = ctx.createOscillator();
-          var gain = ctx.createGain();
-
-          osc.type = "sine";
-          osc.frequency.value = 880;
-          gain.gain.value = 0.02;
-
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-
-          osc.start();
-          window.setTimeout(function(){
-            osc.stop();
-            if (ctx.close) ctx.close();
-          }, 180);
-        } catch (err) {
-          console.error(err);
-        }
-      }
-
-      function queueRowHref(leadId) {
-        var url = new URL(CFG.baseUrl, window.location.origin);
-        url.searchParams.set("tab", "trip-ops");
-        url.searchParams.set("lead_id", String(leadId || 0));
-        return url.toString();
-      }
-
-      function renderQueuePanel(items, selectedLeadId) {
-        var root = document.getElementById("sd-op-queue-panel");
-        if (!root) return;
-
-        var html = "";
-        html += \'<div class="sd-op-card">\';
-        html += \'<div class="sd-op-card-head">\';
-        html += \'<h2>Queue</h2>\';
-        html += \'<div class="sd-op-sub">Action-first queue. Waiting quotes demand immediate attention.</div>\';
-        html += \'</div>\';
-
-        if (!items || !items.length) {
-          html += "<p>No active queue items.</p>";
-          html += "</div>";
-          root.innerHTML = html;
-          return;
-        }
-
-        html += \'<div class="sd-op-queue">\';
-
-        items.forEach(function(item){
-          var leadId = Number(item.lead_id || 0);
-          var classes = "sd-op-queue-row";
-          if (leadId === Number(selectedLeadId || 0)) classes += " is-selected";
-          if ((item.bucket || "") === "quotes_waiting") classes += " is-alert";
-
-          html += \'<a class="\' + classes + \'" href="\' + escapeHtml(queueRowHref(leadId)) + \'">\';
-          html +=   \'<div class="sd-op-queue-main">\';
-          html +=     \'<div class="sd-op-queue-title">\' + escapeHtml(item.customer_name || ("Lead #" + leadId)) + \'</div>\';
-          html +=     \'<div class="sd-op-queue-route">\' + escapeHtml((item.pickup_text || "") + " → " + (item.dropoff_text || "")) + \'</div>\';
-          html +=   \'</div>\';
-          html +=   \'<div class="sd-op-queue-meta">\';
-          html +=     \'<div>\' + escapeHtml(item.bucket_label || "Queue") + \'</div>\';
-          html +=     \'<div>\' + escapeHtml(item.status_summary || "Open") + \'</div>\';
-          html +=     \'<div>\' + escapeHtml(item.next_action_label || "Open") + \'</div>\';
-          html +=   \'</div>\';
-          html += \'</a>\';
-        });
-
-        html += "</div>";
-        html += "</div>";
-
-        root.innerHTML = html;
-      }
-
-      function updateQueueSummary(count, waitingQuotes) {
-        var countEl = document.getElementById("sd-queue-count");
-        var badgeEl = document.getElementById("sd-queue-waiting-badge");
-        var toggleEl = document.getElementById("sd-queue-toggle");
-
-        if (countEl) countEl.textContent = String(Number(count || 0));
-
-        if (badgeEl) {
-          if (Number(waitingQuotes || 0) > 0) {
-            badgeEl.style.display = "";
-            badgeEl.textContent = String(waitingQuotes) + " quote" + (Number(waitingQuotes) === 1 ? "" : "s");
-          } else {
-            badgeEl.style.display = "none";
-            badgeEl.textContent = "";
-          }
-        }
-
-        if (toggleEl) {
-          if (Number(waitingQuotes || 0) > 0) toggleEl.classList.add("is-alert");
-          else toggleEl.classList.remove("is-alert");
-        }
-      }
-
-      function describeInstallInstructions() {
-        return "Use your browser share/menu controls to Add to Home Screen if supported.";
-      }
-
-      function announceQueueChange(snapshot) {
-        var waitingQuotes = Number(snapshot.waiting_quotes || 0);
-        var count = Number(snapshot.count || 0);
-
-        if (!state.firstSnapshotSeen) {
-          state.firstSnapshotSeen = true;
-          state.lastSignature = String(snapshot.signature || "");
-          state.lastCount = count;
-          state.lastWaitingQuotes = waitingQuotes;
-          updateQueueSummary(count, waitingQuotes);
-          renderQueuePanel(snapshot.items || [], snapshot.selected_lead_id || 0);
-          return;
-        }
-
-        var signatureChanged = String(snapshot.signature || "") !== String(state.lastSignature || "");
-        var waitingIncreased = waitingQuotes > Number(state.lastWaitingQuotes || 0);
-        var countIncreased = count > Number(state.lastCount || 0);
-
-        updateQueueSummary(count, waitingQuotes);
-
-        if (CFG.activeTab === "queue") {
-          renderQueuePanel(snapshot.items || [], snapshot.selected_lead_id || 0);
-        }
-
-        if (signatureChanged) {
-          if (waitingIncreased) {
-            setActionStatus("New quote waiting for operator action.");
-            setMonitorMessage("Queue changed. Waiting quote detected.");
-            pulseAlertUI(true);
-            tryVibrate();
-            tryBeep();
-            window.setTimeout(function(){ pulseAlertUI(false); }, 5000);
-          } else if (countIncreased) {
-            setActionStatus("Queue updated. New lead entered the operator queue.");
-            setMonitorMessage("Queue changed. Review latest items.");
-            pulseAlertUI(true);
-            tryVibrate();
-            tryBeep();
-            window.setTimeout(function(){ pulseAlertUI(false); }, 3500);
-          } else {
-            setMonitorMessage("Queue changed. Live monitor updated.");
-          }
-        }
-
-        state.lastSignature = String(snapshot.signature || "");
-        state.lastCount = count;
-        state.lastWaitingQuotes = waitingQuotes;
-      }
-
-      async function fetchQueueSnapshot() {
-        var body = new URLSearchParams();
-        body.append("action", "sd_operator_queue_snapshot");
-        body.append("nonce", CFG.nonce);
-        body.append("limit", String(CFG.queueLimit));
-
-        var res = await fetch(CFG.ajaxUrl, {
-          method: "POST",
-          credentials: "same-origin",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
-          },
-          body: body.toString()
-        });
-
-        var json = await res.json();
-
-        if (!json || json.success !== true) {
-          throw new Error((json && json.data && json.data.message) ? json.data.message : "Queue snapshot failed.");
-        }
-
-        return json.data || {};
-      }
-
-      async function pollQueueOnce() {
-        if (document.visibilityState !== "visible") {
-          setMonitorState("Background");
-          setMonitorMessage("Page hidden. Monitoring slows down until page is visible again.");
-          return;
-        }
-
-        setMonitorState("Live");
-        var snapshot = await fetchQueueSnapshot();
-        announceQueueChange(snapshot);
-
-        if (Number(snapshot.waiting_quotes || 0) > 0) {
-          setMonitorMessage("Foreground monitoring active. Waiting quotes need attention.");
+        if (class_exists('SD_Module_OperatorSettingsSections', false) && method_exists('SD_Module_OperatorSettingsSections', 'render_section')) {
+          echo SD_Module_OperatorSettingsSections::render_section($tenant_id, $section);
         } else {
-          setMonitorMessage("Foreground monitoring active. No waiting quotes right now.");
+          echo self::notice_card('Operator settings sections module is unavailable.');
         }
       }
+    echo '</div>';
 
-      function stopPolling() {
-        if (state.pollTimer) {
-          window.clearInterval(state.pollTimer);
-          state.pollTimer = null;
-        }
-      }
-
-      function startPolling() {
-        stopPolling();
-
-        var interval = (document.visibilityState === "visible") ? CFG.pollMsVisible : CFG.pollMsHidden;
-
-        state.pollTimer = window.setInterval(function(){
-          pollQueueOnce().catch(function(err){
-            console.error(err);
-            setMonitorState("Error");
-            setMonitorMessage("Live monitor could not refresh.");
-          });
-        }, interval);
-      }
-
-      function safeCallInstall() {
-        refreshDebug();
-        maybeUnlockAudio();
-
-        if (!window.SDOperatorPWA || !window.SDOperatorPWA.promptInstall) {
-          setActionStatus("PWA JS not loaded.");
-          return;
-        }
-
-        setActionStatus("Checking install availability...");
-
-        window.SDOperatorPWA.promptInstall()
-          .then(function(res){
-            refreshDebug();
-            if (res && res.ok) {
-              setActionStatus("Install result: " + (res.code || "ok"));
-            } else {
-              setActionStatus(describeInstallInstructions());
-            }
-          })
-          .catch(function(err){
-            console.error(err);
-            refreshDebug();
-            setActionStatus(describeInstallInstructions());
-          });
-      }
-
-      function safeCallAlerts() {
-        refreshDebug();
-        maybeUnlockAudio();
-
-        if (!window.SDOperatorPush || !window.SDOperatorPush.ensurePushSubscription) {
-          setActionStatus("Push JS not loaded.");
-          return;
-        }
-
-        setActionStatus("Requesting alert permission/subscription...");
-
-        window.SDOperatorPush.ensurePushSubscription({ userGesture: true })
-          .then(function(res){
-            refreshDebug();
-            if (res && res.ok) {
-              setActionStatus("Alerts enabled.");
-            } else if (res && res.code === "no-push-manager") {
-              setActionStatus("This browser tab has no PushManager. Foreground live monitor remains active.");
-            } else {
-              setActionStatus("Alerts result: " + ((res && res.code) ? res.code : "no-change"));
-            }
-          })
-          .catch(function(err){
-            console.error(err);
-            refreshDebug();
-            setActionStatus("Enable alerts failed.");
-          });
-      }
-
-      function safeCallTest() {
-        refreshDebug();
-        maybeUnlockAudio();
-
-        if (!window.SDOperatorPush || !window.SDOperatorPush.sendTestPush) {
-          setActionStatus("Push JS not loaded.");
-          return;
-        }
-
-        setActionStatus("Sending test alert...");
-
-        window.SDOperatorPush.sendTestPush()
-          .then(function(res){
-            refreshDebug();
-            var sent = res && typeof res.sent !== "undefined" ? Number(res.sent) : 0;
-            if (sent > 0) {
-              setActionStatus("Test alert sent.");
-            } else {
-              setActionStatus("No saved alert subscription yet.");
-            }
-          })
-          .catch(function(err){
-            console.error(err);
-            refreshDebug();
-            setActionStatus("Test alert failed.");
-          });
-      }
-
-      document.addEventListener("visibilitychange", function(){
-        startPolling();
-        pollQueueOnce().catch(function(){});
-      });
-
-      document.addEventListener("DOMContentLoaded", function(){
-        var installBtn = document.getElementById("sd-install-pwa-btn");
-        var alertsBtn  = document.getElementById("sd-enable-alerts-btn");
-        var testBtn    = document.getElementById("sd-test-alert-btn");
-
-        if (installBtn) installBtn.addEventListener("click", safeCallInstall);
-        if (alertsBtn) alertsBtn.addEventListener("click", safeCallAlerts);
-        if (testBtn) testBtn.addEventListener("click", safeCallTest);
-
-        document.addEventListener("click", maybeUnlockAudio, { passive: true });
-        document.addEventListener("touchstart", maybeUnlockAudio, { passive: true });
-
-        window.addEventListener("sd:pwa-state", refreshDebug);
-        window.addEventListener("sd:push-state", refreshDebug);
-
-        window.addEventListener("sd:pwa-action-result", function(e){
-          var d = e && e.detail ? e.detail : {};
-          if (d.message) {
-            setActionStatus(d.message);
-          }
-          refreshDebug();
-        });
-
-        refreshDebug();
-        setMonitorState("Live");
-        setMonitorMessage("Foreground queue monitoring enabled for this page.");
-
-        pollQueueOnce().catch(function(err){
-          console.error(err);
-          setMonitorState("Error");
-          setMonitorMessage("Live monitor could not refresh.");
-        });
-
-        startPolling();
-
-        window.setTimeout(refreshDebug, 500);
-        window.setTimeout(refreshDebug, 1500);
-        window.setInterval(refreshDebug, 3000);
-      });
-    })();
-    </script>';
+    return (string) ob_get_clean();
   }
 
-  private static function render_queue_panel(array $queue_items, int $selected_lead_id, string $base_url) : string {
-    $html  = '<div class="sd-op-card">';
-    $html .= '  <div class="sd-op-card-head">';
-    $html .= '    <h2>Queue</h2>';
-    $html .= '    <div class="sd-op-sub">Action-first queue. Waiting quotes demand immediate attention.</div>';
-    $html .= '  </div>';
-
-    if (empty($queue_items)) {
-      $html .= '<p>No active queue items.</p>';
-      $html .= '</div>';
-      return $html;
+  private static function render_login_fragment() : string {
+    if (class_exists('SD_Module_OperatorUI', false) && method_exists('SD_Module_OperatorUI', 'render_login_screen')) {
+      ob_start();
+      SD_Module_OperatorUI::render_login_screen(
+        'Operator Login',
+        self::current_request_path(),
+        'Operator Login',
+        'Sign in to access your tenant settings.'
+      );
+      return (string) ob_get_clean();
     }
 
-    $html .= '<div class="sd-op-queue">';
-    foreach ($queue_items as $item) {
-      $lead_id = (int) ($item['lead_id'] ?? 0);
-
-      $href = add_query_arg([
-        'tab'     => 'trip-ops',
-        'lead_id' => $lead_id,
-      ], $base_url);
-
-      $classes = 'sd-op-queue-row';
-      if ($lead_id === $selected_lead_id) $classes .= ' is-selected';
-      if ((string) ($item['bucket'] ?? '') === 'quotes_waiting') $classes .= ' is-alert';
-
-      $bucket_label = class_exists('SD_Module_OperatorQueue', false)
-        ? SD_Module_OperatorQueue::display_bucket_label((string) ($item['bucket'] ?? ''))
-        : 'Queue';
-
-      $status_summary = class_exists('SD_Module_OperatorQueue', false)
-        ? SD_Module_OperatorQueue::display_status_summary($item)
-        : 'Open';
-
-      $html .= '<a class="' . esc_attr($classes) . '" href="' . esc_url($href) . '">';
-      $html .= '  <div class="sd-op-queue-main">';
-      $html .= '    <div class="sd-op-queue-title">' . esc_html(($item['customer_name'] ?? '') !== '' ? (string) $item['customer_name'] : ('Lead #' . $lead_id)) . '</div>';
-      $html .= '    <div class="sd-op-queue-route">' . esc_html(trim((string) ($item['pickup_text'] ?? '') . ' → ' . (string) ($item['dropoff_text'] ?? ''))) . '</div>';
-      $html .= '  </div>';
-      $html .= '  <div class="sd-op-queue-meta">';
-      $html .= '    <div>' . esc_html($bucket_label) . '</div>';
-      $html .= '    <div>' . esc_html($status_summary) . '</div>';
-      $html .= '    <div>' . esc_html((string) ($item['next_action_label'] ?? 'Open')) . '</div>';
-      $html .= '  </div>';
-      $html .= '</a>';
-    }
-    $html .= '</div>';
-    $html .= '</div>';
-
-    return $html;
+    return self::fallback_login_card(self::current_request_url());
   }
 
-  private static function drive_mode_url() : string {
-    $slug = (string) apply_filters('sd_operator_drive_mode_page_slug', self::DEFAULT_PAGE_SLUG);
-    $slug = sanitize_title($slug);
-    if ($slug === '') {
-      $slug = self::DEFAULT_PAGE_SLUG;
+  private static function render_header(int $tenant_id, string $tenant_name, string $store_state, array $readiness, string $current_section) : void {
+    $badge_text  = !empty($readiness['is_ready']) ? 'Ready for testing' : 'Configuration incomplete';
+    $badge_class = !empty($readiness['is_ready']) ? 'sd-operator-badge sd-operator-badge--ready' : 'sd-operator-badge sd-operator-badge--warn';
+
+    echo '<div class="sd-operator-hero">';
+      echo '<div>';
+        echo '<div class="sd-operator-kicker">TENANT HOME</div>';
+        echo '<h1 class="sd-operator-title">' . esc_html($tenant_name) . '</h1>';
+        echo '<div class="sd-operator-sub">Storefront state: ' . esc_html(self::pretty_enum($store_state)) . '</div>';
+        echo '<div class="' . esc_attr($badge_class) . '">' . esc_html($badge_text) . '</div>';
+
+        if (empty($readiness['is_ready'])) {
+          self::render_readiness_checklist($tenant_id, $readiness, $current_section);
+        }
+      echo '</div>';
+
+      echo '<div class="sd-operator-actions">';
+        echo '<a class="sd-operator-drive-btn" href="' . esc_url(home_url('/operator/trips/')) . '">Drive Mode</a>';
+      echo '</div>';
+    echo '</div>';
+  }
+
+  private static function render_readiness_checklist(int $tenant_id, array $readiness, string $current_section) : void {
+    $missing_items = self::missing_items_for_section($tenant_id, $readiness, $current_section);
+    $warnings      = (array) ($readiness['warnings'] ?? []);
+
+    if (empty($missing_items) && empty($warnings)) {
+      return;
     }
 
-    $page = get_page_by_path($slug, OBJECT, 'page');
-    if ($page instanceof WP_Post) {
-      $url = get_permalink($page);
+    echo '<div class="sd-operator-readiness">';
+
+    if (!empty($missing_items)) {
+      $count = count($missing_items);
+      echo '<div class="sd-operator-readiness-title">Missing required config' . ($count > 0 ? ' · ' . (int) $count : '') . '</div>';
+      echo '<ul class="sd-operator-readiness-list">';
+      foreach ($missing_items as $item) {
+        $label   = isset($item['label']) ? (string) $item['label'] : 'Missing setting';
+        $reason  = isset($item['reason']) ? (string) $item['reason'] : 'Required value is missing.';
+        $section = isset($item['section']) ? (string) $item['section'] : '';
+
+        echo '<li class="sd-operator-readiness-item">';
+        if ($section !== '' && $section !== '_unmapped') {
+          $url = add_query_arg(['section' => $section], self::base_url());
+          echo '<a class="sd-operator-readiness-link" href="' . esc_url($url) . '">' . esc_html($label) . '</a>';
+        } else {
+          echo '<span class="sd-operator-readiness-link sd-operator-readiness-link--plain">' . esc_html($label) . '</span>';
+        }
+
+        if ($current_section === '' && $section !== '' && $section !== '_unmapped') {
+          echo '<span class="sd-operator-readiness-section"> · ' . esc_html(self::section_label($section)) . '</span>';
+        }
+
+        echo '<div class="sd-operator-readiness-reason">' . esc_html($reason) . '</div>';
+        echo '</li>';
+      }
+      echo '</ul>';
+    }
+
+    if (!empty($warnings) && $current_section === '') {
+      echo '<div class="sd-operator-readiness-title sd-operator-readiness-title--warnings">Warnings</div>';
+      echo '<ul class="sd-operator-readiness-list sd-operator-readiness-list--warnings">';
+      foreach ($warnings as $warning) {
+        echo '<li class="sd-operator-readiness-item">' . esc_html((string) $warning) . '</li>';
+      }
+      echo '</ul>';
+    }
+
+    echo '</div>';
+  }
+
+  private static function missing_items_for_section(int $tenant_id, array $readiness, string $current_section) : array {
+    if (!class_exists('SD_TenantReadiness', false)) {
+      return (array) ($readiness['missing_items'] ?? []);
+    }
+
+    if ($current_section === '') {
+      return (array) SD_TenantReadiness::missing_items($tenant_id);
+    }
+
+    $grouped = SD_TenantReadiness::missing_by_section($tenant_id);
+    return isset($grouped[$current_section]) && is_array($grouped[$current_section])
+      ? $grouped[$current_section]
+      : [];
+  }
+
+  private static function render_dashboard(int $tenant_id) : void {
+    $base = self::base_url();
+
+    $cards = [
+      [
+        'key'   => 'storefront',
+        'title' => 'Storefront Config',
+        'desc'  => 'Tenant storefront settings and request surface configuration.',
+        'live'  => true,
+      ],
+      [
+        'key'   => 'pricing',
+        'title' => 'Pricing Config',
+        'desc'  => 'Pricing controls, quote behavior, and policy tuning.',
+        'live'  => true,
+      ],
+      [
+        'key'   => 'base_location',
+        'title' => 'Base Location',
+        'desc'  => 'Set the operational base location used when live location is unavailable.',
+        'live'  => true,
+      ],
+      [
+        'key'   => 'profile',
+        'title' => 'Tenant Profile',
+        'desc'  => 'Driver/operator profile shown to riders and customers.',
+        'live'  => true,
+      ],
+      [
+        'key'   => 'vehicle',
+        'title' => 'Automobile Info',
+        'desc'  => 'Vehicle details, service class, and rider-facing car info.',
+        'live'  => false,
+      ],
+      [
+        'key'   => 'brand',
+        'title' => 'Brand Config',
+        'desc'  => 'Brand colors, identity, and tenant-facing appearance.',
+        'live'  => false,
+      ],
+      [
+        'key'   => 'calendar',
+        'title' => 'Calendar',
+        'desc'  => 'Scheduled and reserved rides.',
+        'live'  => false,
+      ],
+      [
+        'key'   => 'drive_mode',
+        'title' => 'Drive Mode',
+        'desc'  => 'Open the mobile-first live operations surface.',
+        'live'  => false,
+      ],
+    ];
+
+    echo '<div class="sd-operator-grid">';
+    foreach ($cards as $card) {
+      $classes = 'sd-operator-card';
+      if (!$card['live']) {
+        $classes .= ' sd-operator-card--disabled';
+      }
+
+      echo '<div class="' . esc_attr($classes) . '">';
+        if ($card['live']) {
+          $url = add_query_arg(['section' => $card['key']], $base);
+          echo '<a class="sd-operator-card-link" href="' . esc_url($url) . '">';
+        } else {
+          echo '<div class="sd-operator-card-link">';
+        }
+
+        echo '<div class="sd-operator-card-title">' . esc_html($card['title']) . '</div>';
+        echo '<div class="sd-operator-card-desc">' . esc_html($card['desc']) . '</div>';
+        if (!$card['live']) {
+          echo '<div class="sd-operator-card-soon">Coming next</div>';
+        }
+
+        if ($card['live']) {
+          echo '</a>';
+        } else {
+          echo '</div>';
+        }
+      echo '</div>';
+    }
+    echo '</div>';
+  }
+
+  private static function current_tenant_id_for_user(int $user_id) : int {
+    if ($user_id <= 0) return 0;
+
+    if (class_exists('SD_TenantAccess', false) && method_exists('SD_TenantAccess', 'get_current_user_tenant_id')) {
+      $tenant_id = (int) SD_TenantAccess::get_current_user_tenant_id();
+      if ($tenant_id > 0) return $tenant_id;
+    }
+
+    return (int) get_user_meta($user_id, SD_Meta::TENANT_ID, true);
+  }
+
+  private static function current_section() : string {
+    $allowed = ['storefront', 'pricing', 'base_location', 'profile'];
+    $section = isset($_GET['section']) ? sanitize_key((string) $_GET['section']) : '';
+    return in_array($section, $allowed, true) ? $section : '';
+  }
+
+  private static function base_url() : string {
+    $page_url = self::current_page_permalink();
+    if ($page_url !== '') {
+      return $page_url;
+    }
+
+    return home_url('/operator/');
+  }
+
+  private static function current_page_permalink() : string {
+    $post = get_post();
+    if ($post instanceof WP_Post) {
+      $url = get_permalink($post);
       if (is_string($url) && $url !== '') {
         return $url;
       }
     }
 
-    return home_url('/' . $slug . '/');
+    return '';
   }
 
-  private static function resolve_selected_lead_id_fallback() : int {
-    $lead_id = isset($_GET['lead_id']) ? absint(wp_unslash($_GET['lead_id'])) : 0;
-    if ($lead_id > 0) {
-      return $lead_id;
-    }
-
-    $legacy_ride_id = isset($_GET['ride_id']) ? absint(wp_unslash($_GET['ride_id'])) : 0;
-    if ($legacy_ride_id > 0 && class_exists('SD_Module_OperatorQueue', false) && method_exists('SD_Module_OperatorQueue', 'lead_id_for_ride')) {
-      return (int) SD_Module_OperatorQueue::lead_id_for_ride($legacy_ride_id);
-    }
-
-    return 0;
+  private static function current_request_url() : string {
+    $uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : '/';
+    return home_url($uri);
   }
 
-  private static function current_user_tenant_id() : int {
-    if (class_exists('SD_TenantAccess', false) && method_exists('SD_TenantAccess', 'current_user_tenant_id')) {
-      return (int) SD_TenantAccess::current_user_tenant_id();
-    }
-
-    if (!is_user_logged_in()) return 0;
-
-    return (int) get_user_meta(get_current_user_id(), 'sd_tenant_id', true);
+  private static function current_request_path() : string {
+    $uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : '/';
+    $path = wp_parse_url($uri, PHP_URL_PATH);
+    return is_string($path) && $path !== '' ? $path : '/';
   }
 
-  private static function current_user_can_operator_surface() : bool {
-    if (current_user_can('manage_options')) return true;
+  private static function section_label(string $section) : string {
+    $map = [
+      'storefront'    => 'Storefront Config',
+      'pricing'       => 'Pricing Config',
+      'base_location' => 'Base Location',
+      'profile'       => 'Tenant Profile',
+      'vehicle'       => 'Automobile Info',
+      'brand'         => 'Brand Config',
+      'calendar'      => 'Calendar',
+    ];
 
-    if (class_exists('SD_Module_RolesCaps', false)) {
-      return current_user_can(SD_Module_RolesCaps::CAP_MANAGE_TENANT)
-        || current_user_can(SD_Module_RolesCaps::CAP_DISPATCH)
-        || current_user_can(SD_Module_RolesCaps::CAP_DRIVER);
-    }
-
-    return is_user_logged_in();
+    return isset($map[$section]) ? $map[$section] : ucwords(str_replace('_', ' ', $section));
   }
 
-  private static function render_shell(string $title, string $body_html) : void {
-    if (class_exists('SD_Module_OperatorUI', false) && method_exists('SD_Module_OperatorUI', 'render_shell')) {
-      SD_Module_OperatorUI::render_shell($title, $body_html);
-      return;
+  private static function pretty_enum(string $value) : string {
+    if ($value === '') return '';
+    if (class_exists('SD_Module_OperatorUI', false) && method_exists('SD_Module_OperatorUI', 'pretty_enum')) {
+      return SD_Module_OperatorUI::pretty_enum($value);
     }
+    return ucwords(str_replace('_', ' ', $value));
+  }
 
+  private static function notice_card(string $message) : string {
+    return '<div class="sd-card tenant-operator-card"><p>' . esc_html($message) . '</p></div>';
+  }
+
+  private static function fallback_login_card(string $redirect_url) : string {
+    ob_start();
+
+    echo '<div class="sd-surface sd-surface--wide sd-operator-settings tenant-operator-settings">';
+    self::render_styles();
+    echo '<div class="sd-operator-login-wrap">';
+    echo '<div class="sd-operator-section-card" style="max-width:520px;margin:40px auto;">';
+    echo '<div class="sd-operator-section-top">';
+    echo '<div>';
+    echo '<h1 class="sd-operator-section-title">Operator Login</h1>';
+    echo '<div class="sd-operator-section-desc">Sign in to access your tenant settings.</div>';
+    echo '</div>';
+    echo '</div>';
+
+    wp_login_form([
+      'echo'           => true,
+      'remember'       => true,
+      'redirect'       => $redirect_url,
+      'label_username' => 'Email or Username',
+      'label_password' => 'Password',
+    ]);
+
+    echo '</div>';
+    echo '</div>';
+    echo '</div>';
+
+    return (string) ob_get_clean();
+  }
+
+  private static function render_shell_fallback(string $title, string $body_html) : void {
     echo '<!doctype html><html><head>';
     echo '<meta charset="utf-8">';
     echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
@@ -775,17 +408,71 @@ final class SD_Module_OperatorDriveMode {
     echo '</body></html>';
   }
 
-  private static function render_fallback_login(string $redirect_url) : void {
-    ob_start();
-    wp_login_form([
-      'echo'           => true,
-      'remember'       => true,
-      'redirect'       => $redirect_url,
-      'label_username' => 'Email or Username',
-      'label_password' => 'Password',
-    ]);
+  private static function render_styles() : void {
+    static $done = false;
+    if ($done) return;
+    $done = true;
 
-    $body = '<div class="sd-op-wrap"><div class="sd-op-card"><h2>Operator Login</h2>' . ob_get_clean() . '</div></div>';
-    self::render_shell('Operator Login', $body);
+    echo '<style>
+      .sd-operator-settings{max-width:1160px;margin:0 auto;padding:24px 20px 40px}
+      .sd-operator-hero{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:28px}
+      .sd-operator-kicker{font-size:14px;font-weight:700;letter-spacing:.08em;color:#5a667d;margin-bottom:6px}
+      .sd-operator-title{font-size:52px;line-height:1;margin:0 0 8px;color:#17233d}
+      .sd-operator-sub{font-size:30px;color:#5a667d;margin-bottom:14px}
+      .sd-operator-badge{display:inline-block;padding:8px 14px;border-radius:999px;font-size:14px;font-weight:700}
+      .sd-operator-badge--ready{background:#edf9f0;color:#166534}
+      .sd-operator-badge--warn{background:#fff7e6;color:#92400e}
+      .sd-operator-readiness{margin-top:16px;max-width:720px;background:#fff;border:1px solid #ead7b8;border-radius:18px;padding:16px 18px}
+      .sd-operator-readiness-title{font-size:14px;font-weight:800;color:#92400e;margin:0 0 10px}
+      .sd-operator-readiness-title--warnings{margin-top:14px;color:#5a667d}
+      .sd-operator-readiness-list{margin:0;padding-left:18px}
+      .sd-operator-readiness-list--warnings{color:#5a667d}
+      .sd-operator-readiness-item{margin:0 0 10px}
+      .sd-operator-readiness-link{font-weight:700;color:#17233d;text-decoration:none}
+      .sd-operator-readiness-link:hover{text-decoration:underline}
+      .sd-operator-readiness-link--plain{text-decoration:none}
+      .sd-operator-readiness-section{color:#6b7280;font-size:13px}
+      .sd-operator-readiness-reason{font-size:12px;color:#6b7280;margin-top:2px}
+      .sd-operator-drive-btn{display:inline-block;background:#17233d;color:#fff;text-decoration:none;padding:16px 24px;border-radius:999px;font-size:20px;font-weight:700}
+      .sd-operator-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px}
+      .sd-operator-card{background:#fff;border:1px solid #dce3ef;border-radius:24px;min-height:170px}
+      .sd-operator-card-link{display:block;padding:22px;color:inherit;text-decoration:none;height:100%}
+      .sd-operator-card-title{font-size:22px;font-weight:800;color:#17233d;margin-bottom:10px}
+      .sd-operator-card-desc{font-size:14px;line-height:1.45;color:#5a667d}
+      .sd-operator-card-soon{margin-top:14px;font-size:12px;font-weight:700;color:#8a94a6;text-transform:uppercase;letter-spacing:.04em}
+      .sd-operator-card--disabled{opacity:.92}
+      .sd-operator-section-card{background:#fff;border:1px solid #dce3ef;border-radius:24px;padding:24px}
+      .sd-operator-section-top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:20px}
+      .sd-operator-section-title{font-size:28px;font-weight:800;color:#17233d;margin:0 0 6px}
+      .sd-operator-section-desc{font-size:14px;color:#5a667d}
+      .sd-operator-back{display:inline-block;text-decoration:none;color:#17233d;font-weight:700}
+      .sd-operator-notice{margin:0 0 18px;padding:14px 16px;border-radius:16px;font-size:14px}
+      .sd-operator-notice--success{background:#edf9f0;color:#166534}
+      .sd-operator-notice--error{background:#fef2f2;color:#991b1b}
+      .sd-operator-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px 20px}
+      .sd-operator-field{display:flex;flex-direction:column;gap:6px}
+      .sd-operator-field--full{grid-column:1 / -1}
+      .sd-operator-label{font-size:13px;font-weight:700;color:#17233d}
+      .sd-operator-help{font-size:12px;color:#6b7280}
+      .sd-operator-error{font-size:12px;color:#b91c1c;font-weight:700}
+      .sd-operator-field input[type=text],
+      .sd-operator-field input[type=number],
+      .sd-operator-field select,
+      .sd-operator-field textarea{width:100%;border:1px solid #cfd8e6;border-radius:14px;padding:12px 14px;font-size:14px;box-sizing:border-box}
+      .sd-operator-field textarea{min-height:110px;resize:vertical}
+      .sd-operator-check{display:flex;align-items:center;gap:10px;margin-top:6px}
+      .sd-operator-actions-row{display:flex;gap:12px;align-items:center;margin-top:22px}
+      .sd-operator-btn{display:inline-block;border:1px solid #17233d;background:#17233d;color:#fff;text-decoration:none;padding:12px 18px;border-radius:999px;font-weight:700;cursor:pointer}
+      .sd-operator-btn--ghost{background:#fff;color:#17233d}
+      @media (max-width: 980px){
+        .sd-operator-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+        .sd-operator-hero{flex-direction:column}
+      }
+      @media (max-width: 640px){
+        .sd-operator-grid,.sd-operator-form-grid{grid-template-columns:1fr}
+        .sd-operator-title{font-size:38px}
+        .sd-operator-sub{font-size:22px}
+      }
+    </style>';
   }
 }

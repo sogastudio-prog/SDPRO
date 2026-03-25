@@ -19,9 +19,10 @@ if (!defined('ABSPATH')) { exit; }
  * - quote/auth/ride hydrate under lead
  * - ride appears only after successful authorization
  *
- * Shortcode / page compatibility:
- * - Does not require a working /operator/trips/ rewrite
- * - Uses current page URL when rendered on a normal WP page
+ * Page routing:
+ * - Uses a normal WP page permalink for Drive Mode
+ * - Default slug is "operator-trips"
+ * - Override with filter: sd_operator_drive_mode_page_slug
  */
 
 if (class_exists('SD_Module_OperatorDriveMode', false)) { return; }
@@ -29,12 +30,13 @@ if (class_exists('SD_Module_OperatorDriveMode', false)) { return; }
 final class SD_Module_OperatorDriveMode {
 
   private const QUEUE_LIMIT = 7;
+  private const DEFAULT_PAGE_SLUG = 'operator-trips';
 
   public static function render_page() : void {
     status_header(200);
 
     if (!is_user_logged_in()) {
-      $redirect = self::current_page_url();
+      $redirect = self::drive_mode_url();
 
       if (class_exists('SD_Module_OperatorUI', false) && method_exists('SD_Module_OperatorUI', 'render_login_screen')) {
         SD_Module_OperatorUI::render_login_screen('Operator Login', $redirect);
@@ -91,7 +93,7 @@ final class SD_Module_OperatorDriveMode {
       }
     }
 
-    $base_url = self::current_page_url();
+    $base_url = self::drive_mode_url();
 
     $html  = '<div class="sd-op-wrap">';
     $html .= '  <div class="sd-op-head">';
@@ -650,19 +652,6 @@ final class SD_Module_OperatorDriveMode {
     </script>';
   }
 
-  private static function current_page_url() : string {
-    $post = get_post();
-    if ($post instanceof WP_Post) {
-      $url = get_permalink($post);
-      if (is_string($url) && $url !== '') {
-        return $url;
-      }
-    }
-
-    $uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : '/';
-    return home_url($uri);
-  }
-
   private static function render_queue_panel(array $queue_items, int $selected_lead_id, string $base_url) : string {
     $html  = '<div class="sd-op-card">';
     $html .= '  <div class="sd-op-card-head">';
@@ -713,6 +702,24 @@ final class SD_Module_OperatorDriveMode {
     $html .= '</div>';
 
     return $html;
+  }
+
+  private static function drive_mode_url() : string {
+    $slug = (string) apply_filters('sd_operator_drive_mode_page_slug', self::DEFAULT_PAGE_SLUG);
+    $slug = sanitize_title($slug);
+    if ($slug === '') {
+      $slug = self::DEFAULT_PAGE_SLUG;
+    }
+
+    $page = get_page_by_path($slug, OBJECT, 'page');
+    if ($page instanceof WP_Post) {
+      $url = get_permalink($page);
+      if (is_string($url) && $url !== '') {
+        return $url;
+      }
+    }
+
+    return home_url('/' . $slug . '/');
   }
 
   private static function resolve_selected_lead_id_fallback() : int {
