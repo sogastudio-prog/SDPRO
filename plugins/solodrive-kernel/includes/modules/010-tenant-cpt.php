@@ -161,8 +161,8 @@ final class SD_Module_TenantCPT {
   self::summary_row('Accuracy', self::format_last_accuracy($tenant_id));
 
   // existing
-  self::summary_row('Business', $business_name);
-  self::summary_row('Slug', $slug);
+  self::summary_row('Business: ', $business_name);
+  self::summary_row('Slug: ', $slug);
   self::summary_row('Domain', $domain);
   self::summary_row('Storefront State', self::pretty_enum($state));
   self::summary_row('Base Location', $base_label);
