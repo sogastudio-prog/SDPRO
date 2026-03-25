@@ -477,5 +477,22 @@ public const LOCKED_MINUTES       = 'sd_locked_minutes';
 public const LOCKED_FARE_CENTS    = 'sd_locked_fare_cents';
 public const LOCKED_UPDATED_AT    = 'sd_locked_updated_at';// ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Time–Space Ledger
+// ---------------------------------------------------------------------------
+public const TS_EVENT_TYPE   = 'sd_ts_event_type';
 
+public const TS_START_TS     = 'sd_ts_start_ts';
+public const TS_END_TS       = 'sd_ts_end_ts';
+
+public const TS_START_LAT    = 'sd_ts_start_lat';
+public const TS_START_LNG    = 'sd_ts_start_lng';
+
+public const TS_END_LAT      = 'sd_ts_end_lat';
+public const TS_END_LNG      = 'sd_ts_end_lng';
+
+// relationships
+public const TS_DRIVER_ID    = 'sd_ts_driver_id';
+public const TS_LEAD_ID      = 'sd_ts_lead_id';
+public const TS_RIDE_ID      = 'sd_ts_ride_id';
 }
