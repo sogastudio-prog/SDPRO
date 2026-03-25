@@ -774,7 +774,15 @@ final class SD_Module_OperatorDriveMode {
     wp_footer();
     echo '</body></html>';
   }
+public static function register() : void {
+  add_shortcode('sd_operator_drive_mode', [__CLASS__, 'shortcode']);
+}
 
+public static function shortcode() : string {
+  ob_start();
+  self::render_page();
+  return (string) ob_get_clean();
+}
   private static function render_fallback_login(string $redirect_url) : void {
     ob_start();
     wp_login_form([
