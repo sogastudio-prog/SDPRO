@@ -218,7 +218,7 @@ final class SD_Module_OperatorDriveMode {
     echo '  </div>';
     echo '</div>';
 
-    echo self::boot_script($tenant_id, $active_view, $base_url);
+  //  echo self::boot_script($tenant_id, $active_view, $base_url);
 
     return (string) ob_get_clean();
   }
