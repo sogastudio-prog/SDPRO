@@ -477,4 +477,5 @@ public const LOCKED_MINUTES       = 'sd_locked_minutes';
 public const LOCKED_FARE_CENTS    = 'sd_locked_fare_cents';
 public const LOCKED_UPDATED_AT    = 'sd_locked_updated_at';// ---------------------------------------------------------------------------
 
+
 }
