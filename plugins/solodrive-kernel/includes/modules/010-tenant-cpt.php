@@ -138,10 +138,6 @@ final class SD_Module_TenantCPT {
       ? (string) SD_TenantConfig::get_value($tenant_id, SD_Meta::BASE_LOCATION_LABEL, '')
       : (string) get_post_meta($tenant_id, SD_Meta::BASE_LOCATION_LABEL, true);
 
-      echo '<div><strong>Last known location</strong><br>' . esc_html(self::format_last_known_location($post->ID)) . '</div>';
-      echo '<div><strong>Last ping</strong><br>' . esc_html(self::format_last_ping($post->ID)) . '</div>';
-      echo '<div><strong>Accuracy</strong><br>' . esc_html(self::format_last_accuracy($post->ID)) . '</div>';
-    
       $readiness = class_exists('SD_TenantReadiness', false)
       ? SD_TenantReadiness::evaluate($tenant_id)
       : [
@@ -158,12 +154,20 @@ final class SD_Module_TenantCPT {
       echo '<p><span class="' . esc_attr($badge_class) . '">' . esc_html($badge_text) . '</span></p>';
 
       echo '<ul class="sd-tenant-summary-list">';
-        self::summary_row('Business', $business_name);
-        self::summary_row('Slug', $slug);
-        self::summary_row('Domain', $domain);
-        self::summary_row('Storefront State', self::pretty_enum($state));
-        self::summary_row('Base Location', $base_label);
-      echo '</ul>';
+
+  // 🔴 NEW — runtime state FIRST (this is key UX decision)
+  self::summary_row('Last Known Location', self::format_last_known_location($tenant_id));
+  self::summary_row('Last Ping', self::format_last_ping($tenant_id));
+  self::summary_row('Accuracy', self::format_last_accuracy($tenant_id));
+
+  // existing
+  self::summary_row('Business', $business_name);
+  self::summary_row('Slug', $slug);
+  self::summary_row('Domain', $domain);
+  self::summary_row('Storefront State', self::pretty_enum($state));
+  self::summary_row('Base Location', $base_label);
+
+echo '</ul>';
 
       if (!$is_ready && !empty($readiness['missing'])) {
         echo '<div style="margin-top:12px;">';
