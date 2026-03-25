@@ -101,16 +101,6 @@ private static function render_trip_surface(string $token) : void {
       $current_stage = SD_CoreStage::current_stage($lead_id);
     }
 
-    
-
-    if ($current_stage === SD_CoreStage::LEAD_NEEDS_TIMEBLOCK) {
-      SD_CoreStage::advance(
-        $lead_id,
-        SD_CoreStage::LEAD_NEEDS_QUOTE,
-        'Temporary auto-advance for pipeline validation.'
-      );
-      $current_stage = SD_CoreStage::current_stage($lead_id);
-    }
   }
 
   /**
