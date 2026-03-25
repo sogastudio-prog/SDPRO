@@ -2,7 +2,7 @@
 if (!defined('ABSPATH')) { exit; }
 
 /**
- * SD_Module_OperatorDriveMode (v0.8)
+ * SD_Module_OperatorDriveMode (lead-root refactor)
  *
  * Purpose:
  * - Render the private operator Drive Mode surface:
@@ -12,7 +12,13 @@ if (!defined('ABSPATH')) { exit; }
  * - Desktop browsers may support push
  * - iPhone browser tabs may not expose PushManager
  * - This surface includes a foreground live-monitor fallback
- * - trip-ops payload is built by SD_Module_OperatorActiveRide::build()
+ * - Active payload is built by SD_Module_OperatorActiveRide::build()
+ *
+ * Canon:
+ * - lead is the queue and trip-ops selection root
+ * - /trip/<token> resolves to lead
+ * - quote/auth/ride hydrate under lead
+ * - ride appears only after successful authorization
  */
 
 if (class_exists('SD_Module_OperatorDriveMode', false)) { return; }
@@ -60,14 +66,12 @@ final class SD_Module_OperatorDriveMode {
       ? SD_Module_OperatorQueue::get_queue($tenant_id, self::QUEUE_LIMIT)
       : [];
 
-    $selected_ride_id = class_exists('SD_Module_OperatorQueue', false) && method_exists('SD_Module_OperatorQueue', 'resolve_selected_ride_id')
-      ? SD_Module_OperatorQueue::resolve_selected_ride_id($queue_items)
-      : (isset($_GET['ride_id']) ? absint(wp_unslash($_GET['ride_id'])) : 0);
+    $selected_lead_id = class_exists('SD_Module_OperatorQueue', false) && method_exists('SD_Module_OperatorQueue', 'resolve_selected_lead_id')
+      ? SD_Module_OperatorQueue::resolve_selected_lead_id($queue_items)
+      : self::resolve_selected_lead_id_fallback();
 
-    // IMPORTANT FIX:
-    // The active ride payload belongs to SD_Module_OperatorActiveRide, not SD_Module_OperatorTripOps.
     $active = class_exists('SD_Module_OperatorActiveRide', false) && method_exists('SD_Module_OperatorActiveRide', 'build')
-      ? SD_Module_OperatorActiveRide::build($selected_ride_id, $tenant_id)
+      ? SD_Module_OperatorActiveRide::build($selected_lead_id, $tenant_id)
       : [];
 
     $active_tab = isset($_GET['tab']) ? sanitize_key((string) $_GET['tab']) : 'queue';
@@ -131,7 +135,7 @@ final class SD_Module_OperatorDriveMode {
       $queue_btn_classes .= ' is-alert';
     }
 
-    $trip_btn_classes  = 'sd-op-toggle';
+    $trip_btn_classes = 'sd-op-toggle';
     if ($active_tab === 'trip-ops') {
       $trip_btn_classes .= ' is-active';
     }
@@ -148,7 +152,7 @@ final class SD_Module_OperatorDriveMode {
 
     $html .= '    <a class="' . esc_attr($trip_btn_classes) . '" href="' . esc_url(add_query_arg([
       'tab'     => 'trip-ops',
-      'ride_id' => $selected_ride_id,
+      'lead_id' => $selected_lead_id,
     ], home_url('/operator/trips/'))) . '">trip-ops</a>';
 
     $html .= '  </div>';
@@ -156,7 +160,7 @@ final class SD_Module_OperatorDriveMode {
     $html .= '  <div class="sd-op-lower">';
     if ($active_tab === 'queue') {
       $html .= '    <div id="sd-op-queue-panel">';
-      $html .=        self::render_queue_panel($queue_items, $selected_ride_id);
+      $html .=        self::render_queue_panel($queue_items, $selected_lead_id);
       $html .= '    </div>';
     } else {
       if (class_exists('SD_Module_OperatorTripOps', false) && method_exists('SD_Module_OperatorTripOps', 'render_active_ride_panel')) {
@@ -315,11 +319,11 @@ final class SD_Module_OperatorDriveMode {
         }
       }
 
-      function queueRowHref(rideId) {
-        return "/operator/trips/?tab=trip-ops&ride_id=" + encodeURIComponent(String(rideId || 0));
+      function queueRowHref(leadId) {
+        return "/operator/trips/?tab=trip-ops&lead_id=" + encodeURIComponent(String(leadId || 0));
       }
 
-      function renderQueuePanel(items, selectedRideId) {
+      function renderQueuePanel(items, selectedLeadId) {
         var root = document.getElementById("sd-op-queue-panel");
         if (!root) return;
 
@@ -340,14 +344,14 @@ final class SD_Module_OperatorDriveMode {
         html += \'<div class="sd-op-queue">\';
 
         items.forEach(function(item){
-          var rideId = Number(item.ride_id || 0);
+          var leadId = Number(item.lead_id || 0);
           var classes = "sd-op-queue-row";
-          if (rideId === Number(selectedRideId || 0)) classes += " is-selected";
+          if (leadId === Number(selectedLeadId || 0)) classes += " is-selected";
           if ((item.bucket || "") === "quotes_waiting") classes += " is-alert";
 
-          html += \'<a class="\' + classes + \'" href="\' + escapeHtml(queueRowHref(rideId)) + \'">\';
+          html += \'<a class="\' + classes + \'" href="\' + escapeHtml(queueRowHref(leadId)) + \'">\';
           html +=   \'<div class="sd-op-queue-main">\';
-          html +=     \'<div class="sd-op-queue-title">\' + escapeHtml(item.customer_name || ("Ride #" + rideId)) + \'</div>\';
+          html +=     \'<div class="sd-op-queue-title">\' + escapeHtml(item.customer_name || ("Lead #" + leadId)) + \'</div>\';
           html +=     \'<div class="sd-op-queue-route">\' + escapeHtml((item.pickup_text || "") + " → " + (item.dropoff_text || "")) + \'</div>\';
           html +=   \'</div>\';
           html +=   \'<div class="sd-op-queue-meta">\';
@@ -401,7 +405,7 @@ final class SD_Module_OperatorDriveMode {
           state.lastCount = count;
           state.lastWaitingQuotes = waitingQuotes;
           updateQueueSummary(count, waitingQuotes);
-          renderQueuePanel(snapshot.items || [], snapshot.selected_ride_id || 0);
+          renderQueuePanel(snapshot.items || [], snapshot.selected_lead_id || 0);
           return;
         }
 
@@ -412,7 +416,7 @@ final class SD_Module_OperatorDriveMode {
         updateQueueSummary(count, waitingQuotes);
 
         if (CFG.activeTab === "queue") {
-          renderQueuePanel(snapshot.items || [], snapshot.selected_ride_id || 0);
+          renderQueuePanel(snapshot.items || [], snapshot.selected_lead_id || 0);
         }
 
         if (signatureChanged) {
@@ -424,7 +428,7 @@ final class SD_Module_OperatorDriveMode {
             tryBeep();
             window.setTimeout(function(){ pulseAlertUI(false); }, 5000);
           } else if (countIncreased) {
-            setActionStatus("Queue updated. New ride entered the operator queue.");
+            setActionStatus("Queue updated. New lead entered the operator queue.");
             setMonitorMessage("Queue changed. Review latest items.");
             pulseAlertUI(true);
             tryVibrate();
@@ -635,7 +639,7 @@ final class SD_Module_OperatorDriveMode {
     </script>';
   }
 
-  private static function render_queue_panel(array $queue_items, int $selected_ride_id) : string {
+  private static function render_queue_panel(array $queue_items, int $selected_lead_id) : string {
     $html  = '<div class="sd-op-card">';
     $html .= '  <div class="sd-op-card-head">';
     $html .= '    <h2>Queue</h2>';
@@ -650,15 +654,15 @@ final class SD_Module_OperatorDriveMode {
 
     $html .= '<div class="sd-op-queue">';
     foreach ($queue_items as $item) {
-      $ride_id = (int) ($item['ride_id'] ?? 0);
+      $lead_id = (int) ($item['lead_id'] ?? 0);
 
       $href = add_query_arg([
         'tab'     => 'trip-ops',
-        'ride_id' => $ride_id,
+        'lead_id' => $lead_id,
       ], home_url('/operator/trips/'));
 
       $classes = 'sd-op-queue-row';
-      if ($ride_id === $selected_ride_id) $classes .= ' is-selected';
+      if ($lead_id === $selected_lead_id) $classes .= ' is-selected';
       if ((string) ($item['bucket'] ?? '') === 'quotes_waiting') $classes .= ' is-alert';
 
       $bucket_label = class_exists('SD_Module_OperatorQueue', false)
@@ -671,7 +675,7 @@ final class SD_Module_OperatorDriveMode {
 
       $html .= '<a class="' . esc_attr($classes) . '" href="' . esc_url($href) . '">';
       $html .= '  <div class="sd-op-queue-main">';
-      $html .= '    <div class="sd-op-queue-title">' . esc_html(($item['customer_name'] ?? '') !== '' ? (string) $item['customer_name'] : ('Ride #' . $ride_id)) . '</div>';
+      $html .= '    <div class="sd-op-queue-title">' . esc_html(($item['customer_name'] ?? '') !== '' ? (string) $item['customer_name'] : ('Lead #' . $lead_id)) . '</div>';
       $html .= '    <div class="sd-op-queue-route">' . esc_html(trim((string) ($item['pickup_text'] ?? '') . ' → ' . (string) ($item['dropoff_text'] ?? ''))) . '</div>';
       $html .= '  </div>';
       $html .= '  <div class="sd-op-queue-meta">';
@@ -685,6 +689,20 @@ final class SD_Module_OperatorDriveMode {
     $html .= '</div>';
 
     return $html;
+  }
+
+  private static function resolve_selected_lead_id_fallback() : int {
+    $lead_id = isset($_GET['lead_id']) ? absint(wp_unslash($_GET['lead_id'])) : 0;
+    if ($lead_id > 0) {
+      return $lead_id;
+    }
+
+    $legacy_ride_id = isset($_GET['ride_id']) ? absint(wp_unslash($_GET['ride_id'])) : 0;
+    if ($legacy_ride_id > 0 && class_exists('SD_Module_OperatorQueue', false) && method_exists('SD_Module_OperatorQueue', 'lead_id_for_ride')) {
+      return (int) SD_Module_OperatorQueue::lead_id_for_ride($legacy_ride_id);
+    }
+
+    return 0;
   }
 
   private static function current_user_tenant_id() : int {
