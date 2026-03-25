@@ -2,13 +2,17 @@
 if (!defined('ABSPATH')) { exit; }
 
 /**
- * SD_Module_OperatorLocation (v0.3)
+ * SD_Module_OperatorLocation (v0.4)
  *
  * Purpose:
  * - Reusable operator location/status module for tenant users
  * - Stores operator live location on user meta
  * - Mirrors live last-known location onto the tenant record
- * - Owns the online/offline toggle used by /operator/ and /operator/trips/
+ * - Owns the online/offline toggle used by operator surfaces
+ *
+ * Important:
+ * - JS is emitted once via wp_footer, not inline inside content fragments
+ * - This avoids shortcode/content filters mangling JS operators like &&
  */
 
 if (class_exists('SD_Module_OperatorLocation', false)) { return; }
@@ -25,6 +29,8 @@ final class SD_Module_OperatorLocation {
   public const LIVE_FRESH_SECONDS = 120;
   public const PING_THROTTLE_MS   = 5000;
 
+  private static bool $footer_boot_registered = false;
+
   public static function register() : void {
     add_action('wp_ajax_sd_operator_ping', [__CLASS__, 'ajax_operator_ping']);
     add_action('wp_ajax_sd_operator_toggle_status', [__CLASS__, 'ajax_toggle_status']);
@@ -35,19 +41,19 @@ final class SD_Module_OperatorLocation {
 
     if ($user_id <= 0) {
       return [
-        'user_id'               => 0,
-        'status'                => 'offline',
-        'status_label'          => 'OFFLINE',
-        'last_lat'              => 0.0,
-        'last_lng'              => 0.0,
-        'last_ts'               => 0,
-        'last_accuracy_m'       => 0.0,
-        'live_location_fresh'   => false,
-        'live_location_label'   => 'missing',
-        'base_location_label'   => 'missing',
-        'tenant_id'             => 0,
-        'storefront_state'      => 'closed',
-        'storefront_state_label'=> 'closed',
+        'user_id'                => 0,
+        'status'                 => 'offline',
+        'status_label'           => 'OFFLINE',
+        'last_lat'               => 0.0,
+        'last_lng'               => 0.0,
+        'last_ts'                => 0,
+        'last_accuracy_m'        => 0.0,
+        'live_location_fresh'    => false,
+        'live_location_label'    => 'missing',
+        'base_location_label'    => 'missing',
+        'tenant_id'              => 0,
+        'storefront_state'       => 'closed',
+        'storefront_state_label' => 'closed',
       ];
     }
 
@@ -105,6 +111,8 @@ final class SD_Module_OperatorLocation {
   public static function render_status_toggle_button(array $args = []) : string {
     if (!is_user_logged_in()) return '';
 
+    self::ensure_footer_boot();
+
     $ctx          = self::get_context(get_current_user_id());
     $current      = (string) ($ctx['status'] ?? 'offline');
     $label        = strtoupper($current === 'online' ? 'ONLINE' : 'OFFLINE');
@@ -123,92 +131,19 @@ final class SD_Module_OperatorLocation {
     <button
       type="button"
       id="<?php echo esc_attr($btn_id); ?>"
-      class="<?php echo esc_attr($status_class); ?>"
+      class="<?php echo esc_attr($status_class); ?> sd-operator-status-btn"
       data-current="<?php echo esc_attr($current); ?>"
       data-next="<?php echo esc_attr($next); ?>"
       data-nonce="<?php echo esc_attr($nonce); ?>"
     ><?php echo esc_html($label); ?></button>
-
-    <script>
-    (function(){
-      var btn = document.getElementById(<?php echo wp_json_encode($btn_id); ?>);
-      if (!btn) return;
-
-      var ajaxUrl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
-
-      function setVisual(status){
-        status = (status === 'online') ? 'online' : 'offline';
-        btn.setAttribute('data-current', status);
-        btn.setAttribute('data-next', status === 'online' ? 'offline' : 'online');
-        btn.textContent = status === 'online' ? 'ONLINE' : 'OFFLINE';
-
-        if (status === 'online') {
-          btn.classList.add('is-online');
-        } else {
-          btn.classList.remove('is-online');
-        }
-      }
-
-      btn.addEventListener('click', function(){
-        var next  = btn.getAttribute('data-next') || 'offline';
-        var nonce = btn.getAttribute('data-nonce') || '';
-        var oldText = btn.textContent;
-
-        btn.disabled = true;
-        btn.textContent = '...';
-
-        var fd = new FormData();
-        fd.append('action', 'sd_operator_toggle_status');
-        fd.append('nonce', nonce);
-        fd.append('next', next);
-
-        fetch(ajaxUrl, {
-          method: 'POST',
-          body: fd,
-          credentials: 'same-origin'
-        })
-        .then(function(r){ return r.json(); })
-        .then(function(res){
-          btn.disabled = false;
-
-          if (!res || !res.success) {
-            var msg = (res && res.data && res.data.message) ? res.data.message : 'Status update failed';
-            btn.textContent = oldText;
-            try { alert(msg); } catch (e) {}
-            return;
-          }
-
-          var newStatus = (res.data && res.data.status) ? String(res.data.status) : next;
-          setVisual(newStatus);
-
-          window.dispatchEvent(new CustomEvent("sd:operator-status-changed", {
-            detail: { status: newStatus, response: res.data || {} }
-          }));
-
-          if (newStatus === "online") {
-            window.dispatchEvent(new CustomEvent("sd:operator-online", {
-              detail: res.data || {}
-            }));
-          }
-
-          window.setTimeout(function(){
-            window.location.reload();
-          }, 600);
-        })
-        .catch(function(){
-          btn.disabled = false;
-          btn.textContent = oldText;
-          try { alert('Status update failed'); } catch (e) {}
-        });
-      });
-    })();
-    </script>
     <?php
     return (string) ob_get_clean();
   }
 
   public static function render_update_location_button(array $args = []) : string {
     if (!is_user_logged_in()) return '';
+
+    self::ensure_footer_boot();
 
     $label   = isset($args['label']) ? (string) $args['label'] : 'Update location';
     $btn_id  = isset($args['id']) && $args['id'] !== ''
@@ -221,7 +156,7 @@ final class SD_Module_OperatorLocation {
     ?>
     <button
       type="button"
-      class="sd-op-btn"
+      class="sd-op-btn sd-operator-location-btn"
       id="<?php echo esc_attr($btn_id); ?>"
       data-nonce="<?php echo esc_attr($nonce); ?>"
       data-label-id="<?php echo esc_attr($text_id); ?>"
@@ -229,123 +164,6 @@ final class SD_Module_OperatorLocation {
     >
       <span id="<?php echo esc_attr($text_id); ?>"><?php echo esc_html($label); ?></span>
     </button>
-
-    <script>
-    (function(){
-      var btn = document.getElementById(<?php echo wp_json_encode($btn_id); ?>);
-      if (!btn) return;
-
-      var labelEl = document.getElementById(btn.getAttribute('data-label-id'));
-      var defaultLabel = btn.getAttribute('data-default-label') || 'Update location';
-      var nonce = btn.getAttribute('data-nonce') || '';
-      var ajaxUrl = <?php echo wp_json_encode(admin_url('admin-ajax.php')); ?>;
-      var throttleMs = <?php echo (int) self::PING_THROTTLE_MS; ?>;
-      var lastPingAt = 0;
-      var watchId = null;
-      var stopTimer = null;
-
-      function setLabel(txt) {
-        if (labelEl) labelEl.textContent = String(txt || defaultLabel);
-      }
-
-      function resetLabelLater(ms) {
-        if (stopTimer) {
-          clearTimeout(stopTimer);
-          stopTimer = null;
-        }
-        stopTimer = window.setTimeout(function(){
-          setLabel(defaultLabel);
-        }, ms);
-      }
-
-      function stopWatch() {
-        if (watchId !== null && navigator.geolocation) {
-          try { navigator.geolocation.clearWatch(watchId); } catch (e) {}
-        }
-        watchId = null;
-      }
-
-      function postPing(lat, lng, acc) {
-        var now = Date.now();
-        if ((now - lastPingAt) < throttleMs) return;
-        lastPingAt = now;
-
-        var fd = new FormData();
-        fd.append('action', 'sd_operator_ping');
-        fd.append('nonce', nonce);
-        fd.append('lat', String(lat));
-        fd.append('lng', String(lng));
-        fd.append('acc', String(acc || ''));
-
-        fetch(ajaxUrl, {
-          method: 'POST',
-          body: fd,
-          credentials: 'same-origin'
-        })
-        .then(function(r){ return r.json(); })
-        .then(function(res){
-          if (res && res.success) {
-            setLabel('Location updated');
-            window.dispatchEvent(new CustomEvent("sd:operator-location-updated", {
-              detail: res.data || {}
-            }));
-            window.location.reload();
-          } else {
-            setLabel('Location failed');
-            resetLabelLater(2500);
-          }
-        })
-        .catch(function(){
-          setLabel('Location failed');
-          resetLabelLater(2500);
-        });
-      }
-
-      function beginWatch() {
-        if (!navigator.geolocation) {
-          setLabel('GPS unavailable');
-          resetLabelLater(2500);
-          return;
-        }
-
-        setLabel('Waiting for GPS...');
-        stopWatch();
-
-        watchId = navigator.geolocation.watchPosition(
-          function(pos){
-            var c = pos && pos.coords ? pos.coords : null;
-            if (!c) return;
-
-            setLabel('Updating...');
-            postPing(c.latitude, c.longitude, c.accuracy);
-
-            window.setTimeout(function(){
-              stopWatch();
-            }, 1200);
-          },
-          function(err){
-            if (err && err.code === 1) {
-              setLabel('Location denied');
-            } else if (err && err.code === 3) {
-              setLabel('Location timeout');
-            } else {
-              setLabel('Location error');
-            }
-
-            resetLabelLater(2500);
-            stopWatch();
-          },
-          {
-            enableHighAccuracy: true,
-            maximumAge: 10000,
-            timeout: 15000
-          }
-        );
-      }
-
-      btn.addEventListener('click', beginWatch);
-    })();
-    </script>
     <?php
     return (string) ob_get_clean();
   }
@@ -376,9 +194,11 @@ final class SD_Module_OperatorLocation {
     update_user_meta($user_id, self::U_LAST_LAT, $lat);
     update_user_meta($user_id, self::U_LAST_LNG, $lng);
     update_user_meta($user_id, self::U_LAST_TS, time());
+
     if ($acc > 0) {
       update_user_meta($user_id, self::U_LAST_ACCURACY, $acc);
     }
+
     update_user_meta($user_id, self::U_STATUS_TS, current_time('mysql'));
 
     $tenant_id = self::current_user_tenant_id($user_id);
@@ -444,6 +264,229 @@ final class SD_Module_OperatorLocation {
       'status'           => $next,
       'storefront_state' => $storefront_state,
     ]);
+  }
+
+  private static function ensure_footer_boot() : void {
+    if (self::$footer_boot_registered) {
+      return;
+    }
+    self::$footer_boot_registered = true;
+
+    add_action('wp_footer', [__CLASS__, 'render_footer_boot'], 99);
+  }
+
+  public static function render_footer_boot() : void {
+    if (!is_user_logged_in()) {
+      return;
+    }
+
+    $ajax_url    = admin_url('admin-ajax.php');
+    $throttle_ms = (int) self::PING_THROTTLE_MS;
+    ?>
+    <script>
+    (function(){
+      if (window.__sdOperatorLocationBooted) return;
+      window.__sdOperatorLocationBooted = true;
+
+      var ajaxUrl = <?php echo wp_json_encode($ajax_url); ?>;
+      var throttleMs = <?php echo (int) $throttle_ms; ?>;
+
+      function postForm(data) {
+        var fd = new FormData();
+        Object.keys(data).forEach(function(key){
+          fd.append(key, data[key]);
+        });
+
+        return fetch(ajaxUrl, {
+          method: "POST",
+          body: fd,
+          credentials: "same-origin"
+        }).then(function(r){
+          return r.json();
+        });
+      }
+
+      function bindStatusButton(btn) {
+        if (!btn || btn.dataset.sdBound === "1") return;
+        btn.dataset.sdBound = "1";
+
+        function setVisual(status) {
+          status = (status === "online") ? "online" : "offline";
+          btn.setAttribute("data-current", status);
+          btn.setAttribute("data-next", status === "online" ? "offline" : "online");
+          btn.textContent = status === "online" ? "ONLINE" : "OFFLINE";
+
+          if (status === "online") btn.classList.add("is-online");
+          else btn.classList.remove("is-online");
+        }
+
+        btn.addEventListener("click", function(){
+          var next = btn.getAttribute("data-next") || "offline";
+          var nonce = btn.getAttribute("data-nonce") || "";
+          var oldText = btn.textContent;
+
+          btn.disabled = true;
+          btn.textContent = "...";
+
+          postForm({
+            action: "sd_operator_toggle_status",
+            nonce: nonce,
+            next: next
+          })
+          .then(function(res){
+            btn.disabled = false;
+
+            if (!res || !res.success) {
+              var msg = (res && res.data && res.data.message) ? res.data.message : "Status update failed";
+              btn.textContent = oldText;
+              try { alert(msg); } catch (e) {}
+              return;
+            }
+
+            var newStatus = (res.data && res.data.status) ? String(res.data.status) : next;
+            setVisual(newStatus);
+
+            window.dispatchEvent(new CustomEvent("sd:operator-status-changed", {
+              detail: { status: newStatus, response: res.data || {} }
+            }));
+
+            if (newStatus === "online") {
+              window.dispatchEvent(new CustomEvent("sd:operator-online", {
+                detail: res.data || {}
+              }));
+            }
+
+            window.setTimeout(function(){
+              window.location.reload();
+            }, 600);
+          })
+          .catch(function(){
+            btn.disabled = false;
+            btn.textContent = oldText;
+            try { alert("Status update failed"); } catch (e) {}
+          });
+        });
+      }
+
+      function bindLocationButton(btn) {
+        if (!btn || btn.dataset.sdBound === "1") return;
+        btn.dataset.sdBound = "1";
+
+        var labelId = btn.getAttribute("data-label-id") || "";
+        var labelEl = labelId ? document.getElementById(labelId) : null;
+        var defaultLabel = btn.getAttribute("data-default-label") || "Update location";
+        var nonce = btn.getAttribute("data-nonce") || "";
+        var lastPingAt = 0;
+        var watchId = null;
+        var stopTimer = null;
+
+        function setLabel(txt) {
+          if (labelEl) labelEl.textContent = String(txt || defaultLabel);
+        }
+
+        function resetLabelLater(ms) {
+          if (stopTimer) {
+            clearTimeout(stopTimer);
+            stopTimer = null;
+          }
+          stopTimer = window.setTimeout(function(){
+            setLabel(defaultLabel);
+          }, ms);
+        }
+
+        function stopWatch() {
+          if (watchId !== null && navigator.geolocation) {
+            try { navigator.geolocation.clearWatch(watchId); } catch (e) {}
+          }
+          watchId = null;
+        }
+
+        function postPing(lat, lng, acc) {
+          var now = Date.now();
+          if ((now - lastPingAt) < throttleMs) return;
+          lastPingAt = now;
+
+          return postForm({
+            action: "sd_operator_ping",
+            nonce: nonce,
+            lat: String(lat),
+            lng: String(lng),
+            acc: String(acc || "")
+          })
+          .then(function(res){
+            if (res && res.success) {
+              setLabel("Location updated");
+              window.dispatchEvent(new CustomEvent("sd:operator-location-updated", {
+                detail: res.data || {}
+              }));
+              window.setTimeout(function(){
+                window.location.reload();
+              }, 300);
+            } else {
+              setLabel("Location failed");
+              resetLabelLater(2500);
+            }
+          })
+          .catch(function(){
+            setLabel("Location failed");
+            resetLabelLater(2500);
+          });
+        }
+
+        function beginWatch() {
+          if (!navigator.geolocation) {
+            setLabel("GPS unavailable");
+            resetLabelLater(2500);
+            return;
+          }
+
+          setLabel("Waiting for GPS...");
+          stopWatch();
+
+          watchId = navigator.geolocation.watchPosition(
+            function(pos){
+              var c = pos && pos.coords ? pos.coords : null;
+              if (!c) return;
+
+              setLabel("Updating...");
+              postPing(c.latitude, c.longitude, c.accuracy);
+
+              window.setTimeout(function(){
+                stopWatch();
+              }, 1200);
+            },
+            function(err){
+              if (err && err.code === 1) setLabel("Location denied");
+              else if (err && err.code === 3) setLabel("Location timeout");
+              else setLabel("Location error");
+
+              resetLabelLater(2500);
+              stopWatch();
+            },
+            {
+              enableHighAccuracy: true,
+              maximumAge: 10000,
+              timeout: 15000
+            }
+          );
+        }
+
+        btn.addEventListener("click", beginWatch);
+      }
+
+      function bindAll() {
+        document.querySelectorAll(".sd-operator-status-btn").forEach(bindStatusButton);
+        document.querySelectorAll(".sd-operator-location-btn").forEach(bindLocationButton);
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", bindAll);
+      } else {
+        bindAll();
+      }
+    })();
+    </script>
+    <?php
   }
 
   private static function current_user_tenant_id(int $user_id) : int {
