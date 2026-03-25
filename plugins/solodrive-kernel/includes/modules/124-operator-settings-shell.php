@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) { exit; }
 /**
  * SD_Module_OperatorSettingsShell
  *
- * Front-end tenant/operator settings shell for /operator/
+ * Front-end tenant/operator settings shell for operator settings.
  *
  * Purpose:
  * - Provide a clean tenant-facing settings dashboard outside wp-admin
@@ -13,17 +13,12 @@ if (!defined('ABSPATH')) { exit; }
  *
  * Entry points:
  * - Direct route render via render_page()
- * - Optional shortcode: [sd_operator_settings]
- *
- * Query args:
- * - ?section=storefront
- * - ?section=pricing
- * - ?section=base_location
+ * - Shortcode: [sd_operator_settings]
  *
  * Notes:
- * - Assumes SD_TenantAccess or user meta SD_Meta::TENANT_ID is available
- * - Assumes SD_TenantConfig, SD_TenantReadiness, and SD_Module_OperatorSettingsSections are loaded
- * - Registration is owned by the module loader; do not manually call ::register() at EOF
+ * - Supports shortcode-rendered WP pages when custom rewrites are unavailable
+ * - Logged-out shortcode rendering now returns the actual login screen markup
+ * - Base URLs resolve to the current page permalink when using shortcode pages
  */
 if (class_exists('SD_Module_OperatorSettingsShell', false)) { return; }
 
@@ -40,14 +35,14 @@ final class SD_Module_OperatorSettingsShell {
       if (class_exists('SD_Module_OperatorUI', false) && method_exists('SD_Module_OperatorUI', 'render_login_screen')) {
         SD_Module_OperatorUI::render_login_screen(
           'Operator Login',
-          '/operator/',
+          self::current_request_path(),
           'Operator Login',
           'Sign in to access your tenant settings.'
         );
         return;
       }
 
-      self::render_shell_fallback('Operator Login', self::notice_card('Please log in to access operator settings.'));
+      self::render_shell_fallback('Operator Login', self::fallback_login_card(self::current_request_url()));
       return;
     }
 
@@ -63,7 +58,7 @@ final class SD_Module_OperatorSettingsShell {
 
   public static function shortcode($atts = []) : string {
     if (!is_user_logged_in()) {
-      return self::notice_card('Please log in to access operator settings.');
+      return self::render_login_fragment();
     }
 
     $user_id   = get_current_user_id();
@@ -109,6 +104,21 @@ final class SD_Module_OperatorSettingsShell {
     echo '</div>';
 
     return (string) ob_get_clean();
+  }
+
+  private static function render_login_fragment() : string {
+    if (class_exists('SD_Module_OperatorUI', false) && method_exists('SD_Module_OperatorUI', 'render_login_screen')) {
+      ob_start();
+      SD_Module_OperatorUI::render_login_screen(
+        'Operator Login',
+        self::current_request_path(),
+        'Operator Login',
+        'Sign in to access your tenant settings.'
+      );
+      return (string) ob_get_clean();
+    }
+
+    return self::fallback_login_card(self::current_request_url());
   }
 
   private static function render_header(int $tenant_id, string $tenant_name, string $store_state, array $readiness, string $current_section) : void {
@@ -300,7 +310,35 @@ final class SD_Module_OperatorSettingsShell {
   }
 
   private static function base_url() : string {
+    $page_url = self::current_page_permalink();
+    if ($page_url !== '') {
+      return $page_url;
+    }
+
     return home_url('/operator/');
+  }
+
+  private static function current_page_permalink() : string {
+    $post = get_post();
+    if ($post instanceof WP_Post) {
+      $url = get_permalink($post);
+      if (is_string($url) && $url !== '') {
+        return $url;
+      }
+    }
+
+    return '';
+  }
+
+  private static function current_request_url() : string {
+    $uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : '/';
+    return home_url($uri);
+  }
+
+  private static function current_request_path() : string {
+    $uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : '/';
+    $path = wp_parse_url($uri, PHP_URL_PATH);
+    return is_string($path) && $path !== '' ? $path : '/';
   }
 
   private static function section_label(string $section) : string {
@@ -327,6 +365,35 @@ final class SD_Module_OperatorSettingsShell {
 
   private static function notice_card(string $message) : string {
     return '<div class="sd-card tenant-operator-card"><p>' . esc_html($message) . '</p></div>';
+  }
+
+  private static function fallback_login_card(string $redirect_url) : string {
+    ob_start();
+
+    echo '<div class="sd-surface sd-surface--wide sd-operator-settings tenant-operator-settings">';
+    self::render_styles();
+    echo '<div class="sd-operator-login-wrap">';
+    echo '<div class="sd-operator-section-card" style="max-width:520px;margin:40px auto;">';
+    echo '<div class="sd-operator-section-top">';
+    echo '<div>';
+    echo '<h1 class="sd-operator-section-title">Operator Login</h1>';
+    echo '<div class="sd-operator-section-desc">Sign in to access your tenant settings.</div>';
+    echo '</div>';
+    echo '</div>';
+
+    wp_login_form([
+      'echo'           => true,
+      'remember'       => true,
+      'redirect'       => $redirect_url,
+      'label_username' => 'Email or Username',
+      'label_password' => 'Password',
+    ]);
+
+    echo '</div>';
+    echo '</div>';
+    echo '</div>';
+
+    return (string) ob_get_clean();
   }
 
   private static function render_shell_fallback(string $title, string $body_html) : void {
