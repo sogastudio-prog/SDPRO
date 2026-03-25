@@ -156,7 +156,7 @@ final class SD_Module_TenantCPT {
       echo '<ul class="sd-tenant-summary-list">';
 
   // 🔴 NEW — runtime state FIRST (this is key UX decision)
-  self::summary_row('Last Known Location:', self::format_last_known_location($tenant_id));
+  self::summary_row('Last Known Location: ', self::format_last_known_location($tenant_id));
   self::summary_row('Last Ping: ', self::format_last_ping($tenant_id));
   self::summary_row('Accuracy: ', self::format_last_accuracy($tenant_id));
 
