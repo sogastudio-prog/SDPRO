@@ -3,8 +3,7 @@ if (!defined('ABSPATH')) { exit; }
 
 final class SD_Module_DriverAvailability {
 
-  public static function set_third_party_state(int $driver_id, int $tenant_id, bool $active, float $lat, float $lng) : bool {
-
+  public static function set_third_party_state(int $driver_id, int $tenant_id, bool $active, float $lat = 0.0, float $lng = 0.0) : bool {
     $driver_id = absint($driver_id);
     $tenant_id = absint($tenant_id);
 
@@ -12,25 +11,35 @@ final class SD_Module_DriverAvailability {
       return false;
     }
 
+    $current = (int) get_user_meta($driver_id, 'sd_driver_third_party_active', true);
+    $next    = $active ? 1 : 0;
+
+    if ($current === $next) {
+      return true;
+    }
+
     $now = time();
 
-    // Update driver state (simple v1)
-    update_user_meta($driver_id, 'sd_driver_third_party_active', $active ? 1 : 0);
+    update_user_meta($driver_id, 'sd_driver_third_party_active', $next);
     update_user_meta($driver_id, 'sd_driver_third_party_updated_at', $now);
 
-    // Ledger event
     $event_type = $active
       ? SD_TimeSpace_EventType::THIRD_PARTY_STARTED
       : SD_TimeSpace_EventType::THIRD_PARTY_ENDED;
 
-    SD_Module_TimeSpaceLedger::write([
+    $payload = [
       'tenant_id'  => $tenant_id,
       'driver_id'  => $driver_id,
       'event_type' => $event_type,
       'start_ts'   => $now,
-      'start_lat'  => $lat,
-      'start_lng'  => $lng,
-    ]);
+    ];
+
+    if (abs($lat) > 0.0001 && abs($lng) > 0.0001) {
+      $payload['start_lat'] = $lat;
+      $payload['start_lng'] = $lng;
+    }
+
+    SD_Module_TimeSpaceLedger::write($payload);
 
     if (class_exists('SD_Util')) {
       SD_Util::log('driver_third_party_state_changed', [
