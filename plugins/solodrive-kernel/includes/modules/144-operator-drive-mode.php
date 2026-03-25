@@ -5,8 +5,7 @@ if (!defined('ABSPATH')) { exit; }
  * SD_Module_OperatorDriveMode (lead-root refactor)
  *
  * Purpose:
- * - Render the private operator Drive Mode surface:
- *     /operator/trips/
+ * - Render the private operator Drive Mode surface
  *
  * Notes:
  * - Desktop browsers may support push
@@ -19,6 +18,10 @@ if (!defined('ABSPATH')) { exit; }
  * - /trip/<token> resolves to lead
  * - quote/auth/ride hydrate under lead
  * - ride appears only after successful authorization
+ *
+ * Shortcode / page compatibility:
+ * - Does not require a working /operator/trips/ rewrite
+ * - Uses current page URL when rendered on a normal WP page
  */
 
 if (class_exists('SD_Module_OperatorDriveMode', false)) { return; }
@@ -31,12 +34,14 @@ final class SD_Module_OperatorDriveMode {
     status_header(200);
 
     if (!is_user_logged_in()) {
+      $redirect = self::current_page_url();
+
       if (class_exists('SD_Module_OperatorUI', false) && method_exists('SD_Module_OperatorUI', 'render_login_screen')) {
-        SD_Module_OperatorUI::render_login_screen('Operator Login', '/operator/trips/');
+        SD_Module_OperatorUI::render_login_screen('Operator Login', $redirect);
         return;
       }
 
-      self::render_fallback_login('/operator/trips/');
+      self::render_fallback_login($redirect);
       return;
     }
 
@@ -85,6 +90,8 @@ final class SD_Module_OperatorDriveMode {
         $waiting_quotes_count++;
       }
     }
+
+    $base_url = self::current_page_url();
 
     $html  = '<div class="sd-op-wrap">';
     $html .= '  <div class="sd-op-head">';
@@ -141,7 +148,7 @@ final class SD_Module_OperatorDriveMode {
     }
 
     $html .= '  <div class="sd-op-toggles">';
-    $html .= '    <a id="sd-queue-toggle" class="' . esc_attr($queue_btn_classes) . '" href="' . esc_url(add_query_arg(['tab' => 'queue'], home_url('/operator/trips/'))) . '">';
+    $html .= '    <a id="sd-queue-toggle" class="' . esc_attr($queue_btn_classes) . '" href="' . esc_url(add_query_arg(['tab' => 'queue'], $base_url)) . '">';
     $html .= '      Queue (<span id="sd-queue-count">' . (int) count($queue_items) . '</span>)';
     if ($waiting_quotes_count > 0) {
       $html .= ' <span class="sd-op-badge" id="sd-queue-waiting-badge">' . (int) $waiting_quotes_count . ' quote' . ($waiting_quotes_count === 1 ? '' : 's') . '</span>';
@@ -153,14 +160,14 @@ final class SD_Module_OperatorDriveMode {
     $html .= '    <a class="' . esc_attr($trip_btn_classes) . '" href="' . esc_url(add_query_arg([
       'tab'     => 'trip-ops',
       'lead_id' => $selected_lead_id,
-    ], home_url('/operator/trips/'))) . '">trip-ops</a>';
+    ], $base_url)) . '">trip-ops</a>';
 
     $html .= '  </div>';
 
     $html .= '  <div class="sd-op-lower">';
     if ($active_tab === 'queue') {
       $html .= '    <div id="sd-op-queue-panel">';
-      $html .=        self::render_queue_panel($queue_items, $selected_lead_id);
+      $html .=        self::render_queue_panel($queue_items, $selected_lead_id, $base_url);
       $html .= '    </div>';
     } else {
       if (class_exists('SD_Module_OperatorTripOps', false) && method_exists('SD_Module_OperatorTripOps', 'render_active_ride_panel')) {
@@ -172,12 +179,12 @@ final class SD_Module_OperatorDriveMode {
     $html .= '  </div>';
     $html .= '</div>';
 
-    $html .= self::boot_script($tenant_id, $active_tab);
+    $html .= self::boot_script($tenant_id, $active_tab, $base_url);
 
     self::render_shell('Drive Mode', $html);
   }
 
-  private static function boot_script(int $tenant_id, string $active_tab) : string {
+  private static function boot_script(int $tenant_id, string $active_tab, string $base_url) : string {
     $ajax_url = admin_url('admin-ajax.php');
     $nonce    = wp_create_nonce('sd_operator_queue');
 
@@ -189,6 +196,7 @@ final class SD_Module_OperatorDriveMode {
         ajaxUrl: ' . wp_json_encode($ajax_url) . ',
         nonce: ' . wp_json_encode($nonce) . ',
         queueLimit: ' . (int) self::QUEUE_LIMIT . ',
+        baseUrl: ' . wp_json_encode($base_url) . ',
         pollMsVisible: 8000,
         pollMsHidden: 20000
       };
@@ -320,7 +328,10 @@ final class SD_Module_OperatorDriveMode {
       }
 
       function queueRowHref(leadId) {
-        return "/operator/trips/?tab=trip-ops&lead_id=" + encodeURIComponent(String(leadId || 0));
+        var url = new URL(CFG.baseUrl, window.location.origin);
+        url.searchParams.set("tab", "trip-ops");
+        url.searchParams.set("lead_id", String(leadId || 0));
+        return url.toString();
       }
 
       function renderQueuePanel(items, selectedLeadId) {
@@ -639,7 +650,20 @@ final class SD_Module_OperatorDriveMode {
     </script>';
   }
 
-  private static function render_queue_panel(array $queue_items, int $selected_lead_id) : string {
+  private static function current_page_url() : string {
+    $post = get_post();
+    if ($post instanceof WP_Post) {
+      $url = get_permalink($post);
+      if (is_string($url) && $url !== '') {
+        return $url;
+      }
+    }
+
+    $uri = isset($_SERVER['REQUEST_URI']) ? (string) wp_unslash($_SERVER['REQUEST_URI']) : '/';
+    return home_url($uri);
+  }
+
+  private static function render_queue_panel(array $queue_items, int $selected_lead_id, string $base_url) : string {
     $html  = '<div class="sd-op-card">';
     $html .= '  <div class="sd-op-card-head">';
     $html .= '    <h2>Queue</h2>';
@@ -659,7 +683,7 @@ final class SD_Module_OperatorDriveMode {
       $href = add_query_arg([
         'tab'     => 'trip-ops',
         'lead_id' => $lead_id,
-      ], home_url('/operator/trips/'));
+      ], $base_url);
 
       $classes = 'sd-op-queue-row';
       if ($lead_id === $selected_lead_id) $classes .= ' is-selected';
@@ -744,12 +768,12 @@ final class SD_Module_OperatorDriveMode {
     echo '</body></html>';
   }
 
-  private static function render_fallback_login(string $redirect_path) : void {
+  private static function render_fallback_login(string $redirect_url) : void {
     ob_start();
     wp_login_form([
       'echo'           => true,
       'remember'       => true,
-      'redirect'       => home_url($redirect_path),
+      'redirect'       => $redirect_url,
       'label_username' => 'Email or Username',
       'label_password' => 'Password',
     ]);
