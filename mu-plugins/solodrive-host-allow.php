@@ -20,7 +20,7 @@ final class SoloDrive_Host_Allow_MU {
    * Set to true temporarily if you want admin-only debug query params.
    * Leave false in normal operation.
    */
-  private const ALLOW_DEBUG = false;
+  private const ALLOW_DEBUG = true;
 
   public static function register() : void {
     add_filter('redirect_canonical', [__CLASS__, 'disable_canonical_redirects'], 10, 2);
@@ -79,7 +79,7 @@ final class SoloDrive_Host_Allow_MU {
       echo 'GLOBAL=' . (int) ($GLOBALS['sd_tenant_id'] ?? 0) . "\n";
       echo 'REQUEST_URI=' . (string) ($_SERVER['REQUEST_URI'] ?? '') . "\n";
       exit;
-      private const ALLOW_DEBUG = true;
+      
     }
   }
 
