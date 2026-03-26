@@ -4,6 +4,12 @@
 
 Lead → Quote → Auth → Ride → Capture
 
+Lead = captured intent
+Quote Draft = internal/proposed
+Presented Quote = tenant-approved and customer-visible
+Authorization = customer commitment
+Ride = post-auth execution object
+
 ---
 
 ## 1. Lead (Entry Point)
@@ -22,13 +28,17 @@ Required:
 
 ## 2. Quote
 
-System-generated offer in response to a Lead.
+A Quote is first created as an internal draft in response to a Lead.
 
-- No pricing logic exposed
-- Generated once per decision cycle
-- Multiple quotes must be prevented via idempotency
+The tenant must approve, adjust, or reject it.
 
---- >>>>>>>>>>>>>> Tenant muust approve before quote is presentedd to lead
+Only an approved quote may be presented to the lead.
+
+Rules:
+- no pricing logic exposed before presentation
+- generated once per decision cycle
+- multiple active quotes must be prevented by idempotency
+- only one presented quote may be active per lead
 
 ## 3. Authorization
 
