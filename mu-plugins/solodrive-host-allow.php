@@ -28,18 +28,10 @@ final class SoloDrive_Host_Allow_MU {
     add_action('init', [__CLASS__, 'maybe_debug_output'], 1);
   }
 
-  /**
-   * WordPress canonical redirects can break multi-host tenant routing.
-   * Disable them globally for this install.
-   */
   public static function disable_canonical_redirects($redirect, $requested) {
     return false;
   }
 
-  /**
-   * Keep front-end/public REST traffic on the current host so tenant domains
-   * and hosted tenant subdomains do not get bounced back to the platform host.
-   */
   public static function filter_rest_url($url, $path, $blog_id, $scheme) {
     if (self::should_skip_rest_rewrite()) {
       return $url;
@@ -63,10 +55,6 @@ final class SoloDrive_Host_Allow_MU {
     return $scheme_now . '://' . $host . $path_part . $query_part . $frag_part;
   }
 
-  /**
-   * Optional admin-only diagnostics.
-   * Disabled by default.
-   */
   public static function maybe_debug_output() : void {
     if (!self::ALLOW_DEBUG) {
       return;
@@ -94,9 +82,6 @@ final class SoloDrive_Host_Allow_MU {
     }
   }
 
-  /**
-   * Skip host rewriting in contexts where it is not appropriate.
-   */
   private static function should_skip_rest_rewrite() : bool {
     if (is_admin()) {
       return true;
@@ -127,23 +112,14 @@ final class SoloDrive_Host_Allow_MU {
     return false;
   }
 
-  /**
-   * Normalize the incoming request host.
-   */
   private static function request_host() : string {
     $host = isset($_SERVER['HTTP_HOST']) ? strtolower(trim((string) $_SERVER['HTTP_HOST'])) : '';
     if ($host === '') {
       return '';
     }
 
-    // Strip port if present.
     $host = preg_replace('/:\d+$/', '', $host);
     return is_string($host) ? $host : '';
-
-    error_log('[sd_tenant_resolver] pre_lookup host=' . $host . ' handle=' . $handle);
-
-// after slug lookup / domain lookup complete
-error_log('[sd_host_allow] resolved host=' . $host . ' handle=' . $handle . ' tenant_id=' . $tenant_id);
   }
 }
 
