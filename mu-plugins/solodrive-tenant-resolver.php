@@ -5,6 +5,7 @@
 
 error_log('[sd_tenant_resolver] file_loaded');
 add_action('muplugins_loaded', function() {
+  error_log('[sd_tenant_resolver] hook_ran');
 
   // Do not resolve in wp-admin unless explicitly requested (keeps admin stable).
   if (is_admin() && !defined('DOING_AJAX')) return;
