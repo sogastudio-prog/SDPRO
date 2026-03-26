@@ -10,6 +10,19 @@ WordPress is the runtime shell. The plugin provides a kernel layer that defines:
 - operator/admin surfaces
 
 ## Principal records
+THIS IS LEGACY -- sd_lead_id (CPT sd_lead) owns tthe entire lifecycle annd stages
+
+UPDATE:
+## Storefront Role
+
+The storefront captures a Lead.
+
+It is responsible for:
+- collecting minimum viable data
+- creating a lead record
+- minting a token
+- redirecting to /trip/<token>
+END UPDATE ***
 
 ### Tenant
 - CPT: `sd_tenant`

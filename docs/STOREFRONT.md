@@ -1,8 +1,22 @@
 # SoloDrive Storefront Architecture
 
-Status: LOCKED  
+Status: LEGACY  
 Applies to: SoloDrive Kernel + Tenant Storefronts  
 Audience: Kernel developers, tenant operators, platform maintainers
+
+PENDING UPDATE:
+
+## Storefront Role
+
+The storefront captures a Lead.
+
+It is responsible for:
+- collecting minimum viable data
+- creating a lead record
+- minting a token
+- redirecting to /trip/<token>
+
+END UPDATE *******
 
 ## 1. Purpose
 

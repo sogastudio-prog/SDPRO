@@ -16,12 +16,21 @@ Purpose:
 
 Track all Stripe interactions.
 
+## Payment Timing Rule (LOCKED)
+
+Authorization occurs BEFORE ride creation.
+
+Ride must not exist prior to:
+- successful payment authorization
+
 Meta includes:
 
 stripe_session_id
 stripe_payment_intent
 stripe_event_id
-ride_id
+tenant_id
+lead_id
+ride_id (on capture, or autth intent changes after ride created)
 quote_id
 attempt_status
 2. Payment Flow
@@ -36,7 +45,7 @@ Passenger authorizes payment
 Webhook received
        ↓
 Quote → PAYMENT_PENDING
-Ride → PROMOTED
+Ride → CREATED
 3. Authorization Model
 
 SoloDrive uses:

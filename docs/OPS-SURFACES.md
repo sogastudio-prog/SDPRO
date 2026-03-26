@@ -2,7 +2,13 @@ SoloDrive Operator Surfaces
 
 Status: LOCKED
 
-Operator surfaces allow tenants to manage rides and dispatch drivers.
+## Dispatch Model
+
+Operators apply constraints to assign drivers.
+
+The system does not require pre-defined availability.
+
+Assignment is a constraint resolution problem, not a lookup.
 
 1. Dispatch Board
 
