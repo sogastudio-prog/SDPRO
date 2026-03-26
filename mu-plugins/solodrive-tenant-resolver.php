@@ -1,15 +1,6 @@
 <?php
 /**
  * SoloDrive Tenant Resolver — MU Plugin (early, host-safe)
- *
- * Resolves tenant by:
- * 1) ?sd_tenant=<handle>
- * 2) {handle}.solodrive.pro subdomain
- * 3) exact custom domain match
- *
- * Writes:
- * - global $sd_tenant_id
- * - defines SD_TENANT_ID constant for code that prefers constants
  */
 
 add_action('muplugins_loaded', function() {
@@ -27,7 +18,6 @@ add_action('muplugins_loaded', function() {
 
   // Hosted handle: {handle}.solodrive.pro
   if (!$handle && $host) {
-    // Only treat as handle if it ends with ".solodrive.pro"
     if (str_ends_with($host, '.solodrive.pro')) {
       $parts = explode('.', $host);
       $candidate = $parts[0] ?? '';
@@ -37,6 +27,9 @@ add_action('muplugins_loaded', function() {
       }
     }
   }
+
+  // EARLY DEBUG: before lookup
+  error_log('[sd_tenant_resolver] pre_lookup host=' . $host . ' handle=' . $handle);
 
   // Query by handle first
   $tenant_id = 0;
@@ -52,7 +45,13 @@ add_action('muplugins_loaded', function() {
         'value' => $handle,
       ]],
     ]);
-    if (!empty($q->posts[0])) $tenant_id = (int)$q->posts[0];
+
+    if (!empty($q->posts[0])) {
+      $tenant_id = (int) $q->posts[0];
+      error_log('[sd_tenant_resolver] slug_match handle=' . $handle . ' tenant_id=' . $tenant_id);
+    } else {
+      error_log('[sd_tenant_resolver] slug_miss handle=' . $handle);
+    }
   }
 
   // If still not found, try custom domain exact match
@@ -67,7 +66,13 @@ add_action('muplugins_loaded', function() {
         'value' => $host,
       ]],
     ]);
-    if (!empty($q->posts[0])) $tenant_id = (int)$q->posts[0];
+
+    if (!empty($q->posts[0])) {
+      $tenant_id = (int) $q->posts[0];
+      error_log('[sd_tenant_resolver] domain_match host=' . $host . ' tenant_id=' . $tenant_id);
+    } else {
+      error_log('[sd_tenant_resolver] domain_miss host=' . $host);
+    }
   }
 
   // Publish resolved tenant id into runtime
@@ -76,5 +81,8 @@ add_action('muplugins_loaded', function() {
   if (!defined('SD_TENANT_ID')) {
     define('SD_TENANT_ID', $tenant_id);
   }
+
+  // FINAL DEBUG
+  error_log('[sd_tenant_resolver] resolved host=' . $host . ' handle=' . $handle . ' tenant_id=' . $tenant_id);
 
 }, 1);
