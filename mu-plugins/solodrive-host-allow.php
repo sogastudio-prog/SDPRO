@@ -139,6 +139,11 @@ final class SoloDrive_Host_Allow_MU {
     // Strip port if present.
     $host = preg_replace('/:\d+$/', '', $host);
     return is_string($host) ? $host : '';
+
+    error_log('[sd_tenant_resolver] pre_lookup host=' . $host . ' handle=' . $handle);
+
+// after slug lookup / domain lookup complete
+error_log('[sd_host_allow] resolved host=' . $host . ' handle=' . $handle . ' tenant_id=' . $tenant_id);
   }
 }
 
