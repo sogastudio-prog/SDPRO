@@ -63,12 +63,20 @@ final class SD_Module_StorefrontEntry {
   // ---------------------------------------------------------------------------
 
   private static function resolve_tenant_id() : int {
-  if (!class_exists('SD_Module_TenantResolver', false)) {
-    return 0;
-  }
+    if (defined('SD_TENANT_ID') && (int) SD_TENANT_ID > 0) {
+    return (int) SD_TENANT_ID;
+    }
 
-  return (int) SD_Module_TenantResolver::current_tenant_id();
-}
+    if (!empty($GLOBALS['sd_tenant_id'])) {
+    return (int) $GLOBALS['sd_tenant_id'];
+    }
+
+    if (class_exists('SD_Module_TenantResolver', false)) {
+    return (int) SD_Module_TenantResolver::current_tenant_id();
+    }
+
+    return 0;
+    }
 
   // ---------------------------------------------------------------------------
   // Workflow rendering

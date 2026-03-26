@@ -224,7 +224,7 @@ final class SD_StorefrontGate {
   public static function current_message(int $tenant_id) : string {
     $result = self::evaluate($tenant_id);
     return (string) ($result['message'] ?? '');
-  }
+    }
 
   /**
    * Convenience: current storefront state.
@@ -232,7 +232,7 @@ final class SD_StorefrontGate {
   public static function state(int $tenant_id) : string {
     $result = self::evaluate($tenant_id);
     return (string) ($result['state'] ?? 'closed');
-  }
+    }
 
   /**
    * Convenience: runtime context for public storefront templates.
@@ -254,17 +254,18 @@ final class SD_StorefrontGate {
       'hours_mode'              => $result['hours_mode'],
       'timezone'                => $result['timezone'],
     ];
-  }
+    }
 
   // ---------------------------------------------------------------------------
   // Internal logic
   // ---------------------------------------------------------------------------
 
   private static function can_request_quote_from_mode(string $request_mode, bool $requires_quote) : bool {
-  return in_array($request_mode, ['quote_only', 'quote_or_booking'], true);
-}
+    return in_array($request_mode, ['quote_only', 'quote_or_booking'], true);
+    }
 
-  private static function can_request_booking_from_mode(string $request_mode, bool $allows_booking) : bool {
+  
+    private static function can_request_booking_from_mode(string $request_mode, bool $allows_booking) : bool {
     if (!$allows_booking) {
       return false;
     }
