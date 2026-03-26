@@ -27,6 +27,10 @@ final class SD_TimeSpace_EventType {
   public const RIDE_STARTED   = 'RIDE_STARTED';
   public const RIDE_COMPLETED = 'RIDE_COMPLETED';
 
+  // Driver internal availability (SoloDrive control)
+  public const DRIVER_PAUSED_STARTED = 'DRIVER_PAUSED_STARTED';
+  public const DRIVER_PAUSED_ENDED   = 'DRIVER_PAUSED_ENDED';
+
   public static function all() : array {
     return [
       self::THIRD_PARTY_STARTED,
@@ -39,6 +43,8 @@ final class SD_TimeSpace_EventType {
       self::AUTHORIZED,
       self::RIDE_STARTED,
       self::RIDE_COMPLETED,
+      self::DRIVER_PAUSED_STARTED,
+      self::DRIVER_PAUSED_ENDED,
     ];
   }
 }

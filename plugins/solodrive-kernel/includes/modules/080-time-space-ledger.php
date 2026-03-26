@@ -197,6 +197,36 @@ final class SD_Module_TimeSpaceLedger {
       ]);
     }
 
+    // Truth classification
+if (!empty($data['truth_class'])) {
+  update_post_meta($post_id, SD_Meta::TS_TRUTH_CLASS, sanitize_text_field($data['truth_class']));
+}
+
+// Subject
+if (!empty($data['subject_type'])) {
+  update_post_meta($post_id, SD_Meta::TS_SUBJECT_TYPE, sanitize_text_field($data['subject_type']));
+}
+if (!empty($data['subject_id'])) {
+  update_post_meta($post_id, SD_Meta::TS_SUBJECT_ID, absint($data['subject_id']));
+}
+
+// Actor
+if (!empty($data['actor_type'])) {
+  update_post_meta($post_id, SD_Meta::TS_ACTOR_TYPE, sanitize_text_field($data['actor_type']));
+}
+if (!empty($data['actor_id'])) {
+  update_post_meta($post_id, SD_Meta::TS_ACTOR_ID, absint($data['actor_id']));
+}
+
+// Payload
+if (!empty($data['payload']) && is_array($data['payload'])) {
+  update_post_meta(
+    $post_id,
+    SD_Meta::TS_PAYLOAD_JSON,
+    wp_json_encode($data['payload'])
+  );
+}
+
     return $post_id;
   }
 
