@@ -3,6 +3,7 @@
  * SoloDrive Tenant Resolver — MU Plugin (early, host-safe)
  */
 
+error_log('[sd_tenant_resolver] file_loaded');
 add_action('muplugins_loaded', function() {
 
   // Do not resolve in wp-admin unless explicitly requested (keeps admin stable).
