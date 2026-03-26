@@ -79,6 +79,7 @@ final class SoloDrive_Host_Allow_MU {
       echo 'GLOBAL=' . (int) ($GLOBALS['sd_tenant_id'] ?? 0) . "\n";
       echo 'REQUEST_URI=' . (string) ($_SERVER['REQUEST_URI'] ?? '') . "\n";
       exit;
+      private const ALLOW_DEBUG = true;
     }
   }
 
