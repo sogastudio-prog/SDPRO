@@ -36,7 +36,7 @@ final class SD_Module_OperatorDriveMode {
 
   public static function boot_drive_runtime(int $tenant_id = 0) : void {
     if (self::$drive_runtime_booted) {
-      return;
+    return;
     }
     self::$drive_runtime_booted = true;
 
@@ -48,13 +48,14 @@ final class SD_Module_OperatorDriveMode {
     self::maybe_boot_module('SD_Module_OperatorNotificationService');
     self::maybe_boot_module('SD_Module_OperatorLocation');
     self::maybe_boot_module('SD_Module_OperatorLocationResolver');
+    self::maybe_boot_module('SD_Module_DriverAvailability');
 
     add_action('wp_enqueue_scripts', function() use ($tenant_id) {
-      self::maybe_enqueue_module_assets('SD_Module_OperatorPWA', $tenant_id);
-      self::maybe_enqueue_module_assets('SD_Module_OperatorPushApi', $tenant_id);
-      self::maybe_enqueue_module_assets('SD_Module_OperatorPushKeys', $tenant_id);
-      self::maybe_enqueue_module_assets('SD_Module_OperatorLocation', $tenant_id);
-      self::maybe_enqueue_module_assets('SD_Module_OperatorLocationResolver', $tenant_id);
+    self::maybe_enqueue_module_assets('SD_Module_OperatorPWA', $tenant_id);
+    self::maybe_enqueue_module_assets('SD_Module_OperatorPushApi', $tenant_id);
+    self::maybe_enqueue_module_assets('SD_Module_OperatorPushKeys', $tenant_id);
+    self::maybe_enqueue_module_assets('SD_Module_OperatorLocation', $tenant_id);
+    self::maybe_enqueue_module_assets('SD_Module_OperatorLocationResolver', $tenant_id);
     }, 20);
   }
 
@@ -221,7 +222,7 @@ final class SD_Module_OperatorDriveMode {
     echo '  </div>';
     echo '</div>';
 
-  //  echo self::boot_script($tenant_id, $active_view, $base_url);
+    //  echo self::boot_script($tenant_id, $active_view, $base_url);
 
     return (string) ob_get_clean();
   }
@@ -348,35 +349,35 @@ final class SD_Module_OperatorDriveMode {
       }
 
       var pauseBtn = document.getElementById("sd-toggle-pause-btn");
-var thirdBtn = document.getElementById("sd-toggle-third-party-btn");
+    var thirdBtn = document.getElementById("sd-toggle-third-party-btn");
 
-function postDriverMode(actionName, payload) {
-  var body = new URLSearchParams();
-  body.append("action", actionName);
+    function postDriverMode(actionName, payload) {
+   var body = new URLSearchParams();
+    body.append("action", actionName);
 
-  Object.keys(payload).forEach(function(key){
+    Object.keys(payload).forEach(function(key){
     body.append(key, String(payload[key]));
-  });
+    });
 
-  return fetch(CFG.ajaxUrl, {
-    method: "POST",
+    return fetch(CFG.ajaxUrl, {
+      method: "POST",
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
     },
     body: body.toString()
-  }).then(function(res){
+    }).then(function(res){
     return res.json();
-  });
-}
+    });
+   }
 
-function withCurrentPosition(fn) {
-  if (!navigator.geolocation) {
+    function withCurrentPosition(fn) {
+    if (!navigator.geolocation) {
     fn(0, 0);
     return;
-  }
+    }
 
-  navigator.geolocation.getCurrentPosition(
+    navigator.geolocation.getCurrentPosition(
     function(pos){
       var c = pos && pos.coords ? pos.coords : null;
       fn(c ? c.latitude : 0, c ? c.longitude : 0);
@@ -389,11 +390,11 @@ function withCurrentPosition(fn) {
       maximumAge: 10000,
       timeout: 8000
     }
-  );
-}
+    );
+    }
 
-if (pauseBtn) {
-  pauseBtn.addEventListener("click", function(){
+    if (pauseBtn) {
+    pauseBtn.addEventListener("click", function(){
     var nextPaused = pauseBtn.getAttribute("data-paused") === "1" ? 0 : 1;
     setActionStatus(nextPaused ? "Pausing SoloDrive..." : "Resuming SoloDrive...");
 
@@ -414,11 +415,11 @@ if (pauseBtn) {
         setActionStatus("Pause update failed.");
       });
     });
-  });
-}
+    });
+   }
 
-if (thirdBtn) {
-  thirdBtn.addEventListener("click", function(){
+    if (thirdBtn) {
+    thirdBtn.addEventListener("click", function(){
     var nextActive = thirdBtn.getAttribute("data-active") === "1" ? 0 : 1;
     var provider = thirdBtn.getAttribute("data-provider") || "unknown";
     if (!provider || provider === "unknown") {
@@ -911,36 +912,6 @@ if (thirdBtn) {
   }
 
   public static function ajax_toggle_pause() : void {
-    if (!is_user_logged_in()) {
-    wp_send_json_error(['message' => 'Authentication required.'], 401);
-    }
-
-    $tenant_id = self::current_user_tenant_id();
-    $driver_id = get_current_user_id();
-
-    if ($tenant_id <= 0 || $driver_id <= 0) {
-    wp_send_json_error(['message' => 'Tenant or driver missing.'], 400);
-    }
-
-    $paused = isset($_POST['paused']) && (string) wp_unslash($_POST['paused']) === '1';
-
-    $lat = isset($_POST['lat']) ? (float) wp_unslash($_POST['lat']) : 0.0;
-    $lng = isset($_POST['lng']) ? (float) wp_unslash($_POST['lng']) : 0.0;
-
-    $ok = class_exists('SD_Module_DriverAvailability', false) && method_exists('SD_Module_DriverAvailability', 'set_pause_state')
-    ? SD_Module_DriverAvailability::set_pause_state($driver_id, $tenant_id, $paused, $lat, $lng, $driver_id)
-    : false;
-
-    if (!$ok) {
-    wp_send_json_error(['message' => 'Pause update failed.'], 500);
-    }
-
-    wp_send_json_success([
-    'paused' => $paused ? 1 : 0,
-    ]);
-  }
-
-  public static function ajax_toggle_third_party() : void {
   if (!is_user_logged_in()) {
     wp_send_json_error(['message' => 'Authentication required.'], 401);
   }
@@ -952,14 +923,55 @@ if (thirdBtn) {
     wp_send_json_error(['message' => 'Tenant or driver missing.'], 400);
   }
 
+  if (!class_exists('SD_Module_DriverAvailability', false)) {
+    wp_send_json_error(['message' => 'Driver availability module not loaded.'], 500);
+  }
+
+  if (!method_exists('SD_Module_DriverAvailability', 'set_pause_state')) {
+    wp_send_json_error(['message' => 'Pause method missing.'], 500);
+  }
+
+  $paused = isset($_POST['paused']) && (string) wp_unslash($_POST['paused']) === '1';
+  $lat = isset($_POST['lat']) ? (float) wp_unslash($_POST['lat']) : 0.0;
+  $lng = isset($_POST['lng']) ? (float) wp_unslash($_POST['lng']) : 0.0;
+
+  $ok = SD_Module_DriverAvailability::set_pause_state($driver_id, $tenant_id, $paused, $lat, $lng, $driver_id);
+
+  if (!$ok) {
+    wp_send_json_error(['message' => 'Pause update failed.'], 500);
+  }
+
+  wp_send_json_success([
+    'paused' => $paused ? 1 : 0,
+  ]);
+}
+
+public static function ajax_toggle_third_party() : void {
+  if (!is_user_logged_in()) {
+    wp_send_json_error(['message' => 'Authentication required.'], 401);
+  }
+
+  $tenant_id = self::current_user_tenant_id();
+  $driver_id = get_current_user_id();
+
+  if ($tenant_id <= 0 || $driver_id <= 0) {
+    wp_send_json_error(['message' => 'Tenant or driver missing.'], 400);
+  }
+
+  if (!class_exists('SD_Module_DriverAvailability', false)) {
+    wp_send_json_error(['message' => 'Driver availability module not loaded.'], 500);
+  }
+
+  if (!method_exists('SD_Module_DriverAvailability', 'set_third_party_state')) {
+    wp_send_json_error(['message' => 'Third-party method missing.'], 500);
+  }
+
   $active   = isset($_POST['active']) && (string) wp_unslash($_POST['active']) === '1';
   $provider = isset($_POST['provider']) ? sanitize_text_field((string) wp_unslash($_POST['provider'])) : 'unknown';
   $lat = isset($_POST['lat']) ? (float) wp_unslash($_POST['lat']) : 0.0;
   $lng = isset($_POST['lng']) ? (float) wp_unslash($_POST['lng']) : 0.0;
 
-  $ok = class_exists('SD_Module_DriverAvailability', false) && method_exists('SD_Module_DriverAvailability', 'set_third_party_state')
-    ? SD_Module_DriverAvailability::set_third_party_state($driver_id, $tenant_id, $active, $lat, $lng, $provider, $driver_id)
-    : false;
+  $ok = SD_Module_DriverAvailability::set_third_party_state($driver_id, $tenant_id, $active, $lat, $lng, $provider, $driver_id);
 
   if (!$ok) {
     wp_send_json_error(['message' => 'Third-party update failed.'], 500);
@@ -969,7 +981,7 @@ if (thirdBtn) {
     'active'   => $active ? 1 : 0,
     'provider' => $provider,
   ]);
-  }
+}
 
   private static function resolve_selected_lead_id_fallback() : int {
     $lead_id = isset($_GET['lead_id']) ? absint(wp_unslash($_GET['lead_id'])) : 0;
