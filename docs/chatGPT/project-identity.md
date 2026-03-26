@@ -90,7 +90,7 @@ Every operational record must contain:
 sd_tenant_id
 
 Examples of tenant-scoped records:
-
+sd_lead
 sd_ride
 sd_quote
 sd_attempt

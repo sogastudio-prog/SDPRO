@@ -22,7 +22,7 @@
  │                                                                            │
  │   Request Surface / Intake                                                 │
  │   - collect trip logistics                                                 │
- │   - create ride lead                                                       │
+ │   - create lead                                                       │
  └────────────────────────────────────────────────────────────────────────────┘
                                          │
                                          ▼

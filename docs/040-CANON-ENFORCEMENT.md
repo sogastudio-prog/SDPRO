@@ -4,6 +4,17 @@
 
 Prevent architectural drift and reintroduction of invalid patterns.
 
+## Documentation Rule
+
+A new document may only be created if:
+
+- it cannot logically fit inside an existing doc
+- it will be referenced during active development
+- it defines behavior, not opinion
+
+Otherwise:
+→ extend an existing doc
+
 ---
 
 ## 1. Entity Hierarchy (LOCKED)
