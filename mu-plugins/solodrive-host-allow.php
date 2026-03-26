@@ -56,32 +56,30 @@ final class SoloDrive_Host_Allow_MU {
   }
 
   public static function maybe_debug_output() : void {
-    if (!self::ALLOW_DEBUG) {
-      return;
-    }
-
-    if (!is_user_logged_in() || !current_user_can('manage_options')) {
-      return;
-    }
-
-    if (isset($_GET['hostcheck'])) {
-      nocache_headers();
-      header('Content-Type: text/plain; charset=utf-8');
-      echo 'HTTP_HOST=' . self::request_host() . "\n";
-      exit;
-    }
-
-    if (isset($_GET['sd_debug_tenant'])) {
-      nocache_headers();
-      header('Content-Type: text/plain; charset=utf-8');
-      echo 'HTTP_HOST=' . self::request_host() . "\n";
-      echo 'SD_TENANT_ID=' . (defined('SD_TENANT_ID') ? (int) SD_TENANT_ID : 0) . "\n";
-      echo 'GLOBAL=' . (int) ($GLOBALS['sd_tenant_id'] ?? 0) . "\n";
-      echo 'REQUEST_URI=' . (string) ($_SERVER['REQUEST_URI'] ?? '') . "\n";
-      exit;
-      
-    }
+  if (!self::ALLOW_DEBUG) {
+    return;
   }
+
+  if (isset($_GET['hostcheck'])) {
+    nocache_headers();
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'HTTP_HOST=' . self::request_host() . "\n";
+    echo 'SD_TENANT_ID=' . (defined('SD_TENANT_ID') ? (int) SD_TENANT_ID : 0) . "\n";
+    echo 'GLOBAL=' . (int) ($GLOBALS['sd_tenant_id'] ?? 0) . "\n";
+    echo 'REQUEST_URI=' . (string) ($_SERVER['REQUEST_URI'] ?? '') . "\n";
+    exit;
+  }
+
+  if (isset($_GET['sd_debug_tenant'])) {
+    nocache_headers();
+    header('Content-Type: text/plain; charset=utf-8');
+    echo 'HTTP_HOST=' . self::request_host() . "\n";
+    echo 'SD_TENANT_ID=' . (defined('SD_TENANT_ID') ? (int) SD_TENANT_ID : 0) . "\n";
+    echo 'GLOBAL=' . (int) ($GLOBALS['sd_tenant_id'] ?? 0) . "\n";
+    echo 'REQUEST_URI=' . (string) ($_SERVER['REQUEST_URI'] ?? '') . "\n";
+    exit;
+  }
+}
 
   private static function should_skip_rest_rewrite() : bool {
     if (is_admin()) {
