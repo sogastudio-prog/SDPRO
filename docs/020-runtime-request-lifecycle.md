@@ -1,359 +1,333 @@
-SoloDrive Runtime Request Lifecycle (v1.0)
+# SoloDrive Runtime Request Lifecycle
 
-Status: ACTIVE — DEBUG PRIORITY DOCUMENT
+Status: ACTIVE — DEBUG / IMPLEMENTATION DOCUMENT  
+Purpose: Define the current runtime flow, the target runtime flow, and the guardrails that prevent duplication, drift, and race conditions.
 
-0. Purpose
+---
 
-This document defines the exact runtime flow of a customer request from:
+## Document Intent
 
-Storefront → Lead → Quote → Auth → Ride → Capture
+This doc is operational, not aspirational.
 
-It exists to:
+It should help answer:
 
-Debug duplicate quote issues
-Enforce lifecycle isolation
-Clarify hook execution order
-Prevent state leakage and race conditions
-1. Canonical Lifecycle Chain (LOCKED)
+- what happens today
+- what should happen next
+- where bugs are likely to appear
+- what must never happen on passive reads
+
+---
+
+## Lifecycle Views
+
+### Current Working Runtime
+This is the ride-first runtime that has already reached payment capture.
+
+```txt
+Storefront
+  → intake record created (ride-first today)
+  → quote created / attached
+  → token minted
+  → /trip/<token>
+  → payment authorization
+  → ride completion
+  → payment capture
+Target Runtime
+
+This is the lead-first runtime the system is moving toward.
+
+Storefront
+  → lead created
+  → quote draft created
+  → tenant approves / adjusts / rejects
+  → presented quote shown
+  → user accepts
+  → auth attempt created
+  → authorization succeeds
+  → ride created
+  → ride completes
+  → capture
+Key Rule
+
+Each phase owns its own records.
+No phase may silently pre-create a downstream phase.
+
+1. Entry Point: Storefront Submission
+Source
+CF7-based intake surface
+Current Trigger
+wpcf7_before_send_mail
+Current Working Behavior
+validate minimum fields
+resolve tenant
+create current intake/lifecycle record
+mint token
+redirect to /trip/<token>
+Target Behavior
+validate minimum fields
+resolve tenant
+create lead
+mint token on lead
+redirect to /trip/<token>
+
+Required data:
+
+sd_tenant_id
+pickup place id
+dropoff place id
+requested time
+customer name
+customer phone
+2. Public Redirect
+/trip/<token>
+Current Meaning
+
+Token resolves the current engagement record that owns the public flow.
+
+Target Meaning
+token → lead_id → sd_tenant_id → full context
+
+Rule:
+
+After token entry, public context should be record-owned, not URL-owned.
+
+3. Quote Creation Phase
+Current Working Reality
+
+Quote is currently generated/attached within the ride-first model.
+
+Target Model
+
+Quote draft is generated in response to lead state and then reviewed by tenant/operator.
+
+Target transition shape:
+
 LEAD_CAPTURED
   ↓
 LEAD_WAITING_QUOTE
   ↓
-LEAD_OFFERED
+QUOTE_DRAFT_CREATED
   ↓
-LEAD_PROMOTED
+tenant approves / adjusts / rejects
   ↓
-QUOTE_PAYMENT_PENDING
-  ↓
-RIDE_QUEUED → RIDE_COMPLETE
-Key Rule
+approved quote becomes PRESENTED
 
-Each phase owns its own records. No phase may pre-create the next.
+Rule:
 
-2. Entry Point: Storefront Submission
-Source
-CF7 Form (Contact Form 7)
-Trigger
-wpcf7_before_send_mail
-3. Lead Creation Phase
-Hook Chain
-wpcf7_before_send_mail
-  → SD_Module_Intake::handle_submission()
-      → validate_minimum_fields()
-      → resolve_tenant_id()
-      → create_lead()
-      → mint_token()
-      → redirect_to_trip()
-Required Fields (LOCKED)
-sd_tenant_id
-pickup_place_id
-dropoff_place_id
-requested_datetime
-customer_name
-customer_phone
-Output
-lead_id
-sd_trip_token
-sd_lead_status = LEAD_CAPTURED
-4. Public Redirect
-/trip/<token>
-Resolution Flow
-token
-  → lead_id
-    → sd_tenant_id
-      → full system context
-Rule
+A customer must never see an unapproved quote.
 
-After this point, URL no longer determines tenant.
+4. Quote Risk Zone
 
-5. Lead → Quote Transition
-Trigger Condition
-sd_lead_status = LEAD_WAITING_QUOTE
-Worker (current or planned)
-SD_Worker_GenerateQuote
-Expected Behavior
-IF no active quote exists:
-    create QUOTE (PROPOSED)
-    link to lead via sog_ride_id / lead_id
-    advance lead → LEAD_OFFERED
-🔴 Duplicate Quote Risk Zone
+This is a historical bug zone and remains a critical guardrail area.
 
-This is where your bug lives.
+Common causes of duplicate or invalid quote creation:
 
-Common Causes:
-Multiple hook triggers
-CF7 fires twice
-Page reload triggers worker again
-Missing idempotency check
+hook fires multiple times
+page refresh re-enters side-effect logic
+no idempotency check
+state not advanced atomically
+quote creation happens on passive render instead of explicit lifecycle trigger
 
-No guard like:
+Required guard pattern:
 
-if (existing_active_quote($lead_id)) return;
-Race condition
-Two processes create quote simultaneously
-State not updated fast enough
-Lead still appears as WAITING_QUOTE
-REQUIRED GUARD (CANON)
-$existing = SD_Quote::get_active_by_lead($lead_id);
-
+$existing = SD_Quote::get_active_for_parent($parent_id);
 if ($existing) {
-    return; // HARD STOP
+    return;
 }
-6. Quote Lifecycle
-States
-PROPOSED
-  → PRESENTED
-    → LEAD_ACCEPTED
-      → PAYMENT_PENDING
-Decision Surface (LOCKED)
 
-/trip/<token> is the ONLY place a human decides.
+Where parent_id is:
 
-7. Quote → Auth Attempt
-Trigger
+ride in current runtime
+lead in target runtime
+5. Tenant Decision Gate
 
-User accepts quote on trip page
+This is target architecture and should guide refactors.
 
-Flow
+Allowed outcomes:
+
+approve
+adjust
+reject with apology / decline outcome
+
+Rules:
+
+unapproved quote is not customer-visible
+only one presented quote may be active
+presentation happens on /trip/<token>
+6. Authorization Phase
+Current Working Behavior
+
+The current system has already reached payment authorization and capture through the ride-first runtime.
+
+Target Behavior
+
+User accepts the presented quote, then:
+
 POST /trip/<token>
-  → SD_Module_TripActions::accept_quote()
-      → create_auth_attempt()
-      → call Stripe
-Output
-auth_attempt_id
-status = AUTHORIZED / FAILED
-8. Auth → Ride Promotion
-Trigger
-Stripe authorization success
-Flow
-auth_success
-  → promote_lead_to_ride()
-      → create sd_ride
-      → assign driver (later)
-      → set:
-          LEAD_PROMOTED
-          RIDE_QUEUED
-Rule
+  → create auth attempt
+  → create Stripe session / authorization flow
+  → Stripe webhook / return handling
+  → authorization outcome updates lifecycle
 
-Ride must NOT exist before payment authorization
+Output:
 
-9. Ride Execution Phase
+attempt_id
+authorization status
+linkage to engagement parent and quote
+
+Rule:
+
+Authorization is the commitment boundary.
+
+7. Promotion to Ride
+Current Working Reality
+
+Ride already exists in the current ride-first runtime.
+
+Target Behavior
+
+Ride is created only after successful authorization.
+
+Target shape:
+
+authorization success
+  → create sd_ride
+  → assign operational context
+  → advance lifecycle
+
+Rule:
+
+Ride must not exist before authorization in the target model.
+
+8. Ride Execution Phase
+
+Ride execution states:
+
 RIDE_QUEUED
-  → RIDE_DEADHEAD
-  → RIDE_ARRIVED
-  → RIDE_INPROGRESS
-  → RIDE_COMPLETE
-10. Capture Phase
-Trigger
+RIDE_DEADHEAD
+RIDE_WAITING
+RIDE_INPROGRESS
+RIDE_ARRIVED
 RIDE_COMPLETE
-Flow
-capture_payment()
-  → Stripe capture
-  → finalize transaction
-11. Full Hook Timeline (Simplified)
-CF7 Submit
-  → wpcf7_before_send_mail
-    → create_lead()
+RIDE_CANCELLED
 
-Redirect → /trip/<token>
+This phase is operational and should remain separate from quote/engagement state.
 
-Trip Load
-  → maybe_generate_quote()
+9. Capture Phase
+Current Working Reality
 
-User Action
-  → accept_quote()
+The current system has already reached payment capture.
 
-Stripe
-  → auth_response()
+Target Rule
 
-System
-  → promote_to_ride()
+Capture occurs after ride completion.
 
-Driver Ops
-  → ride_state_machine()
+Target shape:
 
-Completion
-  → capture_payment()
-12. CRITICAL DEBUG ZONES
-🔴 Zone A: Intake Duplication
+RIDE_COMPLETE
+  → capture payment
+  → record final payment result
+10. Full Runtime Timeline
+Current
+CF7 submit
+  → create ride-first engagement record
+  → create/attach quote
+  → mint token
+  → /trip/<token>
+  → payment authorization
+  → completion
+  → capture
+Target
+CF7 submit
+  → create lead
+  → mint token
+  → /trip/<token>
+  → quote draft generation
+  → tenant decision
+  → presented quote
+  → user acceptance
+  → auth attempt
+  → authorization success
+  → create ride
+  → completion
+  → capture
+11. Critical Debug Zones
+Zone A: Intake Duplication
 
 Check:
 
 CF7 firing twice
-AJAX + non-AJAX submission overlap
-🔴 Zone B: Quote Generation (PRIMARY ISSUE)
+AJAX + non-AJAX overlap
+duplicate post creation paths
+Zone B: Quote Generation
 
-Symptoms:
+Check:
 
-Two quotes created
-Conflicting states
+idempotency guard
+duplicate hooks
+page-load mutation
+missing state advancement
+Zone C: State Drift
 
-Fix:
+Check:
 
-Add idempotency guard
-Lock by lead_id
-🔴 Zone C: State Drift
+stale status values
+transitions that do not update atomically
+logic reading one state and writing another object
+Zone D: Token Re-entry
 
-Symptoms:
-
-Lead stuck in wrong state
-Workers re-trigger
-
-Fix:
-
-Ensure atomic updates:
-
-update_post_meta($lead_id, 'sog_lead_status', NEW_STATE);
-🔴 Zone D: Token Re-entry
-
-Refreshing /trip/<token> should NOT:
-
-create new quote
-trigger state changes
-13. Required Safeguards (NON-NEGOTIABLE)
-1. Idempotency
-
-Every creation must check:
-
-Does this already exist?
-2. Single Source of Truth
-Lead owns lifecycle
-Token resolves lead
-No duplication across CPTs
-3. State Machine Authority
-
-Only allowed transitions:
-
-current_state → allowed_next_state
-
-No skipping.
-
-4. No Side Effects on Read
-
-GET /trip/<token> must NEVER:
+Refreshing /trip/<token> must not:
 
 create quotes
+create attempts
+mutate state without explicit user or worker action
+12. Required Safeguards
+Idempotency
+
+Every creation path must answer:
+
+Does this already exist?
+Single Source of Truth
+current working source: ride-first engagement record
+target source: lead
+no duplicate ownership of the same lifecycle concern
+State Machine Authority
+
+Only allowed transitions may create or advance downstream records.
+
+No Side Effects on Read
+
+GET requests must never:
+
+create records
 mutate state
-14. Immediate Fix Plan (Your Current System)
-Step 1
+trigger downstream promotion implicitly
+13. Payment Correlation Rule
 
-Add guard in quote creation:
+Attempt records are the canonical Stripe correlation layer.
 
-if (SD_Quote::exists_active_for_lead($lead_id)) return;
-Step 2
+They should carry:
 
-Log every quote creation:
+tenant linkage
+quote linkage
+parent engagement linkage
+Stripe identifiers
+attempt status
 
-error_log('[QUOTE_CREATE] lead_id=' . $lead_id);
-Step 3
+Current parent linkage may be ride-first.
+Target parent linkage should be lead-first.
 
-Verify trigger source:
+14. Transitional Implementation Rule
 
-CF7 hook?
-Trip page load?
-Worker loop?
-Step 4
+Until lead-first ownership is implemented:
 
-Move quote creation into:
-
-state-driven worker ONLY
-
-NOT:
-
-page render
-shortcode
-template
-15. Golden Rule (Burn This In)
+current working ride-first flow remains valid
+new work must avoid deepening ride-first assumptions unnecessarily
+docs must distinguish current behavior from target behavior
+Final Rule
 
 Nothing creates anything unless the state machine says so.
 
-16. What This Fix Unlocks
 
-Once stable:
+---
 
-No duplicate quotes ✅
-Deterministic lifecycle ✅
-Clean audit logs ✅
-Reliable Stripe flow ✅
-Production readiness ✅
-
-SoloDrive Payment Architecture
-
-Status: LOCKED
-
-SoloDrive uses Stripe authorization-first payments.
-
-Payments are correlated through attempt records.
-
-1. Attempt Record
-
-CPT:
-
-sd_attempt
-
-Purpose:
-
-Track all Stripe interactions.
-
-## Payment Timing Rule (LOCKED)
-
-Authorization occurs BEFORE ride creation.
-
-Ride must not exist prior to:
-- successful payment authorization
-
-Meta includes:
-
-stripe_session_id
-stripe_payment_intent
-stripe_event_id
-tenant_id
-lead_id
-ride_id (on capture, or autth intent changes after ride created)
-quote_id
-attempt_status
-2. Payment Flow
-Passenger accepts quote
-       ↓
-Stripe Checkout Session created
-       ↓
-Attempt record created
-       ↓
-Passenger authorizes payment
-       ↓
-Webhook received
-       ↓
-Quote → PAYMENT_PENDING
-Ride → CREATED
-3. Authorization Model
-
-SoloDrive uses:
-
-manual capture
-
-Meaning:
-
-authorize now
-capture after ride completion
-4. Capture Workflow
-
-When ride completes:
-
-RIDE_COMPLETE
-   ↓
-Capture PaymentIntent
-   ↓
-Record capture timestamp
-
-Capture module:
-
-payments-capture.php
-5. Webhook Correlation
-
-Stripe webhooks resolve events to attempts using:
-
-payment_intent
-checkout_session
-event_id
-
-Attempt record acts as canonical correlation layer.

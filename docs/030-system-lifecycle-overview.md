@@ -1,71 +1,87 @@
-# System Lifecycle Overview (Canonical)
+# Replacement: `030-system-lifecycle-overview.md`
 
-## Core Flow
+```md
+# System Lifecycle Overview
 
-Lead → Quote → Auth → Ride → Capture
-
-Lead = captured intent
-Quote Draft = internal/proposed
-Presented Quote = tenant-approved and customer-visible
-Authorization = customer commitment
-Ride = post-auth execution object
+Status: ACTIVE  
+Purpose: Give a fast, high-signal overview of the current system posture and the target canonical lifecycle.
 
 ---
 
-## 1. Lead (Entry Point)
+## Two Truths
 
-A Lead represents a qualified transportation intent.
+### Current Working System
+The current runtime is ride-first and has already reached payment capture.
 
-Created via storefront submission.
+### Target Canonical System
+The target runtime is lead-first and will eventually govern engagement end-to-end.
 
-Required:
-- tenant_id
-- pickup/dropoff place_id
-- time
-- customer identity
+Rule:
+
+> This document is intentionally brief. It orients. It does not replace Architecture.md or runtime-request-lifecycle.md.
 
 ---
 
-## 2. Quote
+## Core Flows
 
-A Quote is first created as an internal draft in response to a Lead.
+### Current Working Flow
 
+```txt
+Ride-first intake → Quote → Authorization → Capture
+Target Canonical Flow
+Lead → Quote Draft → Tenant Decision → Presented Quote → Auth Attempt → Ride → Capture
+Definitions
+Lead
+
+Captured transportation intent.
+Target canonical parent of the engagement lifecycle.
+
+Quote Draft
+
+Internal/proposed quote not yet shown to the customer.
+
+Presented Quote
+
+Tenant-approved quote that is customer-visible and actionable.
+
+Auth Attempt
+
+Payment authorization attempt and Stripe correlation layer.
+
+Ride
+
+Operational execution record.
+Target posture: post-auth only.
+
+Capture
+
+Final payment capture after ride completion.
+
+Lifecycle Meaning
+Current
+intake and lifecycle spine currently live on ride-first structure
+the system has proven payment authorization/capture under that implementation
+Target
+lead becomes the primary engagement identifier
+quote presentation must pass through tenant approval
+ride becomes a downstream operational object
+Quote Rule
+
+A quote is first created as an internal draft.
 The tenant must approve, adjust, or reject it.
+Only an approved/presented quote may be shown to the customer.
 
-Only an approved quote may be presented to the lead.
+Availability Rule
 
-Rules:
-- no pricing logic exposed before presentation
-- generated once per decision cycle
-- multiple active quotes must be prevented by idempotency
-- only one presented quote may be active per lead
+Availability is assumed by default and reduced by constraints later.
 
-## 3. Authorization
+Mental model:
 
-User accepts quote → payment authorization occurs.
+ASSUME YES → PROVE NO
+Core Rule
 
-This is the **commit point**.
+Nothing creates downstream objects unless the state machine explicitly allows it.
 
----
-
-## 4. Ride
-
-Ride is created ONLY after successful authorization.
-
-Ride represents:
-- a funded job
-- an execution contract
 
 ---
 
-## 5. Capture
-
-Occurs after ride completion.
-
----
-
-## Core Rule
-
-Nothing creates downstream objects unless:
-
-→ State machine explicitly allows it
