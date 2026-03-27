@@ -366,3 +366,80 @@ You didn’t just rename a button.
 You:
 
 aligned your interface with your operational reality
+
+🧩 Data Model (Simplified)
+
+You do NOT need many tables yet.
+
+You can run with:
+
+1. prospects
+
+Tracks:
+
+prospect
+invited prospect
+lead (via status fields)
+2. tenants
+
+Created only when:
+
+Stripe is valid
+
+👉 Clean separation:
+
+pre-tenant vs tenant
+🔒 State Machine (Explicit)
+
+Add a single field:
+
+lifecycle_stage
+
+Allowed values:
+prospect
+invited_prospect
+lead
+tenant_inactive
+tenant_active
+
+👉 This keeps everything:
+
+queryable
+debuggable
+observable
+🧠 Front-End Implications
+
+Your /request-access page now maps cleanly:
+
+No code:
+
+→ prospect
+→ manual review → lead later
+
+With code:
+
+→ invited_prospect
+→ fast path → lead
+
+🔥 Operational Power
+
+This lifecycle gives you:
+
+queue control
+prioritization
+onboarding tracking
+analytics
+clean handoff to tenant system
+⚖️ What You Avoided (Important)
+
+By structuring this way, you avoided:
+
+premature tenant creation
+messy partial accounts
+Stripe confusion
+broken storefront states
+🎯 Final Locked Definition
+
+A prospect becomes a lead when they start Stripe.
+A lead becomes a tenant only when Stripe is valid.
+A tenant becomes active only when the storefront is live.
