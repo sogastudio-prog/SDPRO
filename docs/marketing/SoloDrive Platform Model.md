@@ -1,303 +1,387 @@
-🧭 SoloDrive Platform Model (LOCK THIS)
-⚡ The Core Truth (Read This First)
+Understood. Here is your **refined, paste-ready version** — same structure, but elevated tone:
+
+* more **precise**
+* more **controlled**
+* more **executive-grade**
+* subtle inspiration, no hype
+* reads like a system specification with intent
+
+---
+
+# 🧭 SoloDrive Platform Model (LOCK THIS)
+
+## ⚡ Core Principle
 
 Drivers already have customers.
 
-They meet them every day:
+They encounter them continuously through:
 
-Uber rides
-Lyft rides
-airport trips
-local demand
+* Uber
+* Lyft
+* airport trips
+* local transportation demand
 
-The problem:
+The limitation is not access.
 
-They don’t own those relationships.
+It is ownership.
 
-SoloDrive fixes that.
+Drivers do not retain the relationship.
 
-SoloDrive turns rides drivers are already giving into customers they actually own.
+SoloDrive resolves this.
 
-🚨 The Reality SoloDrive Captures
+> **SoloDrive converts existing rides into driver-owned customers.**
 
-SoloDrive does not generate demand.
+---
 
-It captures demand that already exists — inside the driver’s current rides.
+## 🚨 Demand Reality
 
-Every ride is:
+SoloDrive does not create demand.
 
-a trust-building moment
-a future booking opportunity
-a potential repeat customer
+It captures demand that already exists within the driver’s current activity.
 
-SoloDrive provides the infrastructure to convert that moment into a business.
+Each ride represents:
 
-🧩 Two Systems, Two Jobs (NON-NEGOTIABLE)
-1. solodrive.pro → Your Business (Control Plane)
+* an established trust interaction
+* a completed transaction
+* a future booking opportunity
 
-Purpose:
+SoloDrive provides the infrastructure required to convert that moment into a persistent business relationship.
 
-acquire tenants
-qualify drivers
-collect Stripe Connect
-onboard + support
+This aligns directly with the platform growth model, where drivers convert existing passengers into repeat direct bookings rather than relying on centralized rider acquisition .
 
-This is:
+---
 
-👉 Tenant acquisition + onboarding + support system
+# 🧩 System Architecture (NON-NEGOTIABLE)
 
-2. app.solodrive.pro → Tenant Business (Execution Plane)
+## 1. solodrive.pro → Control Plane
 
-Purpose:
+**Function:**
 
-run storefronts
-capture rides
-process payments
-collect application fees
+* tenant acquisition
+* driver qualification
+* Stripe Connect onboarding
+* tenant support
 
-This is:
+This system manages:
 
-👉 Revenue engine (for both tenant AND platform)
+> **Onboarding, identity, and platform access**
 
-🔒 Critical System Law
+---
 
-These two systems must NEVER be mixed.
+## 2. app.solodrive.pro → Execution Plane
 
-solodrive.pro NEVER processes rides
-app.solodrive.pro NEVER handles onboarding
+**Function:**
 
-This separation ensures:
+* storefront operation
+* ride intake
+* payment processing
+* fee collection
 
-platform neutrality
-legal protection
-clean revenue model
-scalable architecture
-🔁 The Real-World Flow (What Actually Happens)
-Before the System (Real World)
+This system operates:
 
-Driver gives a ride → passenger trusts driver
+> **The transaction and revenue engine**
 
-👉 This is where SoloDrive begins
+---
 
-After the Ride
+## 🔒 System Law
 
-Driver says:
+> **Control plane and execution plane must remain strictly isolated.**
 
-“Next time, just book me directly.”
+* solodrive.pro does not process rides
+* app.solodrive.pro does not perform onboarding
 
-Shares link → SoloDrive storefront
+This separation enforces:
 
-What SoloDrive Does
-captures the booking
-processes payment
-powers the experience
-enables repeat rides
+* platform neutrality
+* legal clarity
+* financial separation
+* architectural scalability
 
-👉 The relationship now belongs to the driver
+This is consistent with the platform’s strategic requirement to operate strictly as infrastructure rather than as a transportation provider .
 
-🔁 End-to-End Platform Flow (System)
-Phase 1 — Marketing Intake (solodrive.pro)
+---
 
-solodrive.pro
-↓
-Driver submits onboarding form
+# 🔁 Real-World Entry Point
 
-You collect:
+## Pre-System Condition
 
-name
-business info
-phone/email
+Driver completes a ride → passenger trusts driver
 
-👉 No system resources allocated yet
+This moment is the origin of the system.
 
-Phase 2 — Stripe Connect (HARD GATE)
+---
 
-solodrive.pro
-↓
-Redirect → Stripe Connect onboarding
+## Conversion Event
+
+Driver communicates:
+
+> “You can book me directly next time.”
+
+Passenger receives a storefront link.
+
+---
+
+## Platform Role
+
+SoloDrive then:
+
+* captures the booking
+* processes payment via third-party infrastructure
+* supports ride execution
+* enables repeat interaction
+
+The relationship persists with the driver.
+
+---
+
+# 🔁 End-to-End Platform Flow
+
+## Phase 1 — Intake (solodrive.pro)
+
+Driver submits onboarding form.
+
+Captured data includes:
+
+* name
+* contact information
+* business details
+
+No tenant resources are created at this stage.
+
+---
+
+## Phase 2 — Stripe Connect (Hard Gate)
+
+Driver completes Stripe onboarding.
 
 Result:
 
-acct_***
-charges_enabled = true
+* connected account (acct_*)
+* charges enabled
 
-👉 This is your:
+This is the only valid entry point into the system.
 
-TENANT_CAPTURED moment
+> **No Stripe → No Tenant**
 
-🔒 Rule
+---
 
-No Stripe → No Tenant → No Work
+## Phase 3 — Tenant Creation (Control Plane)
 
-Phase 3 — Confirm + Configure (solodrive.pro)
+Upon verification:
 
-solodrive.pro/admin
-↓
-“Stripe account ready”
-↓
-Create tenant
+System performs:
 
-System actions:
+* slug generation (e.g., mike)
+* domain assignment (mike.solodrive.pro)
+* sd_tenant creation
+* Stripe account linkage
 
-generate:
-slug (e.g. mike)
-domain (mike.solodrive.pro)
-create sd_tenant
-attach:
-connected_account_id = acct_***
-enable storefront
-Phase 4 — Live Tenant (Execution Begins)
+Storefront is enabled.
 
-https://mike.solodrive.pro
+---
 
-Now:
+## Phase 4 — Execution Activation
 
-tenant resolves via slug
-storefront is live
-ride intake begins
-Stripe authorization → capture → fees
-💰 Revenue Model (Crystal Clear)
-solodrive.pro earns:
-onboarding control
-future SaaS tools
-tenant support services
-app.solodrive.pro earns:
-Stripe application fees
-per-ride transaction revenue
-🧠 The Two Funnels (NEVER MIX THESE)
-Funnel A — Tenant Acquisition
+Tenant storefront becomes live:
+
+[https://mike.solodrive.pro](https://mike.solodrive.pro)
+
+System behavior:
+
+* tenant resolves via domain
+* ride intake is active
+* payment authorization and capture enabled
+* application fees collected
+
+---
+
+# 💰 Revenue Model
+
+## Control Plane (solodrive.pro)
+
+* onboarding control
+* tenant lifecycle management
+* future SaaS capabilities
+
+## Execution Plane (app.solodrive.pro)
+
+* per-ride application service fees
+* transaction-based revenue
+
+This aligns incentives across drivers, passengers, and platform infrastructure.
+
+---
+
+# 🧠 Dual Funnel Model (STRICT SEPARATION)
+
+## Funnel A — Tenant Acquisition
 
 solodrive.pro
-→ onboarding form
+→ onboarding
 → Stripe Connect
-→ tenant created
+→ tenant creation
 
-Funnel B — Ride Revenue
+---
+
+## Funnel B — Ride Revenue
 
 app.solodrive.pro
 → ride request
 → quote
-→ auth
+→ authorization
 → capture
-→ application fee
+→ fee collection
 
-🔒 Rule
+---
 
-These funnels must remain completely independent.
+## 🔒 Constraint
 
-🧩 Why This Model Works
+> These funnels must remain completely independent.
 
-Because drivers are already doing the hardest part:
+---
 
-finding passengers
-building trust
-completing rides
+# 🧩 Operational Rationale
 
-SoloDrive simply:
+Drivers already perform the highest-friction functions:
 
-👉 captures that value instead of letting it disappear
+* passenger acquisition
+* trust establishment
+* service delivery
 
-🧠 What You’re Actually Selling
+SoloDrive does not replace this behavior.
 
-You are not selling software.
+It captures and retains its value.
 
-You are selling:
+This enables the driver-driven growth system described in the platform flywheel, where trust-based interactions convert into repeat direct bookings .
 
-“Turn your current driving into your own transportation business — instantly.”
+---
 
-🔒 System Rules (LOCK)
-No Stripe → No Tenant
-no sd_tenant
-no domain
-no storefront
-Tenant exists only after:
-Stripe connected + verified
-solodrive.pro
-onboarding + support ONLY
-never touches rides
-app.solodrive.pro
-execution ONLY
-never handles onboarding
-🧩 What You Need to Build Next
-1. Stripe → Tenant Bridge (Critical)
+# 🧠 Product Position
 
-After Stripe onboarding:
+SoloDrive is not a marketplace.
 
-Store:
+It is not a dispatch layer.
 
-acct_id
-email
-business_name
-status
+It is not a lead generator.
 
-Then show in admin:
+It is:
 
-👉 “Ready to Create Tenant”
+> **Infrastructure for independent transportation businesses**
 
-2. One-Click Tenant Creation
+---
 
-Button:
+# 🔒 System Constraints (LOCK)
+
+1. **No Stripe → No Tenant**
+
+   * no sd_tenant
+   * no domain
+   * no storefront
+
+2. **Tenant existence requires:**
+
+   * verified Stripe account
+
+3. **solodrive.pro**
+
+   * onboarding and support only
+   * no ride involvement
+
+4. **app.solodrive.pro**
+
+   * execution only
+   * no onboarding logic
+
+---
+
+# 🧩 Required System Capabilities (Next)
+
+## 1. Stripe → Tenant Bridge
+
+Persist:
+
+* acct_id
+* email
+* business_name
+* status
+
+Expose state:
+
+> “Ready to create tenant”
+
+---
+
+## 2. Deterministic Tenant Creation
+
+Single action:
 
 [Create Tenant]
 
-Auto:
+System performs:
 
-slug generation
-domain assignment
-tenant creation
-Stripe connection
-3. Auto Domain Assignment
+* slug generation
+* domain assignment
+* tenant creation
+* Stripe linkage
+
+---
+
+## 3. Domain Resolution
 
 slug → subdomain
 
 mike → mike.solodrive.pro
 
-4. Post-Creation Activation
+---
 
-After onboarding:
+## 4. Activation Confirmation
 
-👉 “Your storefront is live:”
-https://mike.solodrive.pro
+Upon completion:
 
-🚀 Where This Leads (Next Phase)
-Fully Automated Onboarding
+> “Your storefront is live.”
 
-solodrive.pro form
+---
+
+# 🚀 Forward State
+
+## Fully Automated Onboarding
+
+Target flow:
+
+solodrive.pro
 → Stripe Connect
-→ webhook
-→ auto-create tenant
-→ email:
+→ webhook trigger
+→ tenant auto-created
+→ activation notification
 
-“You’re live.”
+---
 
-🎯 Strategic Position (Final Alignment)
+# 🎯 Strategic Position
 
-SoloDrive is not a rideshare marketplace.
+SoloDrive operates as infrastructure.
 
-It is:
+Drivers operate the business.
 
-👉 Infrastructure for driver-owned transportation businesses
+The platform enables, but does not participate in, transportation services.
 
-🔥 Final Summary
+---
 
-Drivers already meet the customers.
+# 🔁 System Summary
 
-SoloDrive makes those customers theirs.
-
-System flow:
-
-Rideshare ride
+Rideshare interaction
 ↓
-Driver builds trust
+Driver establishes trust
 ↓
-Driver shares link
+Driver provides direct booking link
 ↓
-Passenger books directly
+Passenger books through storefront
 ↓
-SoloDrive processes ride
+SoloDrive processes transaction
 ↓
 Platform collects fee
 ↓
-Driver builds repeat business
+Driver retains customer relationship
 
-End of Document
+---
+
+**End of Document**
