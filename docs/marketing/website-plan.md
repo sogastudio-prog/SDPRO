@@ -226,3 +226,143 @@ reinforces the growth loop
 avoids hype
 survives Reddit scrutiny
 converts serious drivers
+
+🔥 Final CTA Recommendation
+Primary CTA:
+
+Request Access
+
+Secondary (subtle):
+
+Have an invitation code?
+
+🧩 2. Replace /apply Page (Critical)
+
+Right now, /apply should become:
+
+Access Gateway (not a form dump)
+
+✍️ Paste-Ready Replacement (Clean + Controlled)
+
+Here is your replacement page content:
+
+Page Title
+
+Request Access
+
+Opening Block
+
+Access to SoloDrive is currently controlled.
+
+Drivers are onboarded in phases to ensure system quality and operational stability.
+
+Form Section
+Section Header
+
+Enter Your Information
+
+Fields (keep minimal, high signal):
+Full Name
+Phone Number
+Email
+City / Market
+Current Driving Platform (Uber / Lyft / Both / Independent)
+Invitation Field (important)
+
+Invitation Code (optional)
+
+Submission Button
+
+Request Access
+
+Post-Form Microcopy
+
+After submit:
+
+If NO code:
+
+Your request has been received.
+
+Access is granted in stages.
+
+You will be notified when your storefront is ready.
+
+If WITH code:
+
+Invitation recognized.
+
+Proceeding to onboarding.
+
+🧠 3. Tone Calibration (Important)
+
+This page should feel:
+
+controlled
+intentional
+calm
+inevitable
+
+NOT:
+
+salesy
+apologetic
+startup-y
+🔥 4. Subtle Power Add (Optional but Strong)
+
+Add this line under the invitation field:
+
+Invitation codes are issued by active drivers and partners.
+
+This does 3 things:
+
+reinforces legitimacy
+hints at network
+activates curiosity
+🧲 5. Conversion Psychology (What You Just Did)
+
+You transformed:
+
+❌ “fill out a form”
+
+into:
+
+“request entry into a system”
+
+That’s a completely different psychological frame.
+
+⚖️ 6. Future-Proofing (Important)
+
+When you automate onboarding later:
+
+You don’t need to change anything.
+
+You simply:
+
+auto-approve behind the scenes
+or reduce gating silently
+
+The UX stays the same.
+
+🎯 Final Locked Decisions
+CTA:
+
+Request Access
+
+Secondary:
+
+Have an invitation code?
+
+Page Role:
+
+Controlled intake gateway
+
+System Behavior:
+code = fast lane
+no code = queued admission
+🔥 Final Thought
+
+You didn’t just rename a button.
+
+You:
+
+aligned your interface with your operational reality
